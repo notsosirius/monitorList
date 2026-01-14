@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>物料派单</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Microsoft YaHei', sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        
+        /* 头部 - 蓝色主题 */
+        .header { background: #3498db; color: white; padding: 15px 20px; }
+        .header h1 { font-size: 1.5em; margin-bottom: 5px; }
+        .header p { font-size: 0.9em; opacity: 0.9; }
+        
+        /* 主内容区 */
+        .main-content { display: grid; grid-template-columns: 1fr 1fr; min-height: 500px; }
+        
+        /* 左侧：物料信息 */
+        .info-section { padding: 20px; background: #f8f9fa; border-right: 1px solid #e0e0e0; }
+        .section-title { color: #333; font-size: 1.1em; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 2px solid #3498db; }
+        .info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        .info-item { margin-bottom: 8px; }
+        .info-label { font-size: 0.8em; color: #666; margin-bottom: 3px; }
+        .info-value { padding: 6px 8px; background: white; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9em; }
+        
+        /* 右侧：人员选择 */
+        .select-section { padding: 20px; }
+        
+        /* 部门组 - 紧凑布局 */
+        .dept-group { margin-bottom: 20px; }
+        .dept-header { 
+            background: #e9ecef; 
+            padding: 8px 12px; 
+            border-radius: 4px; 
+            margin-bottom: 8px; 
+            font-size: 0.95em; 
+            font-weight: 600;
+            color: #333;
+        }
+        
+        /* 四列人员网格 - 优化点击区域 */
+        .person-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+        .person-item { display: flex; align-items: center; gap: 4px; padding: 6px; border: 1px solid #e0e0e0; border-radius: 4px; background: white; cursor: pointer; transition: all 0.2s; }
+        .person-item:hover { border-color: #3498db; background: #f0f8ff; }
+        .person-item.selected { border-color: #3498db; background: #e3f2fd; }
+        
+        /* 隐藏原始复选框，用自定义样式替代 */
+        .person-item input[type="checkbox"] { 
+            display: none; /* 隐藏原始复选框 */
+        }
+        
+        /* 自定义复选框样式 */
+        .custom-checkbox {
+            position: relative;
+            width: 16px;
+            height: 16px;
+            border: 1px solid #bbb;
+            border-radius: 3px;
+            background: white;
+            flex-shrink: 0;
+        }
+        
+        .custom-checkbox.checked {
+            background: #3498db;
+            border-color: #3498db;
+        }
+        
+        .custom-checkbox.checked::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 12px;
+        }
+        
+        .person-name { 
+            font-size: 0.85em; 
+            color: #333; 
+            white-space: nowrap; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+            flex-grow: 1;
+        }
+        
+        .person-code { 
+            font-size: 0.75em; 
+            color: #666; 
+            margin-left: auto;
+            flex-shrink: 0;
+        }
+        
+        /* 手动输入区域 */
+        .manual-input-section { margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px; }
+        .manual-input-label { font-size: 0.9em; color: #333; margin-bottom: 6px; font-weight: 500; }
+        .manual-input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9em; }
+        .manual-input:focus { outline: none; border-color: #3498db; }
+        .manual-input-desc { font-size: 0.8em; color: #666; margin-top: 4px; }
+        
+        /* 底部操作区 */
+        .footer { padding: 15px 20px; background: #f8f9fa; border-top: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; }
+        .validation-message { font-size: 0.85em; }
+        .validation-message.error { color: #e74c3c; }
+        .validation-message.success { color: #2ecc71; }
+        .selected-persons-info { 
+            font-size: 0.85em; 
+            margin-top: 8px; 
+            padding: 8px; 
+            background: #f8f9fa; 
+            border-radius: 4px; 
+            border-left: 3px solid #3498db; 
+        }
+        .selected-persons-list { 
+            margin-top: 5px; 
+            font-size: 0.8em; 
+            color: #666; 
+        }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em; }
+        .btn-cancel { background: #95a5a6; color: white; }
+        .btn-primary { background: #3498db; color: white; }
+        .btn-primary:disabled { background: #bdc3c7; cursor: not-allowed; }
+        
+        /* 结果弹窗 */
+        .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 1000; }
+        .modal.hidden { display: none; }
+        .modal-content { background: white; border-radius: 8px; width: 100%; max-width: 400px; }
+        .modal-header { background: #2ecc71; color: white; padding: 15px; border-radius: 8px 8px 0 0; text-align: center; }
+        .modal-body { padding: 20px; }
+        .result-item { margin-bottom: 10px; font-size: 0.9em; }
+        .result-label { font-weight: 600; color: #333; min-width: 80px; display: inline-block; }
+        .result-value { color: #555; }
+        .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+        
+        /* 消息提示 */
+        .message { position: fixed; top: 20px; right: 20px; padding: 10px 15px; background: #333; color: white; border-radius: 4px; z-index: 1001; font-size: 0.9em; }
+        .message.success { background: #2ecc71; }
+        .message.error { background: #e74c3c; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📋 物料派单</h1>
+            <p>请勾选至少3名检查人员</p>
+        </div>
+        
+        <div class="main-content">
+            <!-- 左侧：物料信息 -->
+            <div class="info-section">
+                <h3 class="section-title">物料信息</h3>
+                <div class="info-grid" id="info-grid">
+                    <!-- 动态填充 -->
+                </div>
+            </div>
+            
+            <!-- 右侧：人员选择 -->
+            <div class="select-section">
+                <h3 class="section-title">选择检查人员</h3>
+                
+                <!-- 监管一科 -->
+                <div class="dept-group">
+                    <div class="dept-header">监管一科</div>
+                    <div class="person-grid" id="dept1-list">
+                        <!-- 动态填充 -->
+                    </div>
+                </div>
+                
+                <!-- 监管二科 -->
+                <div class="dept-group">
+                    <div class="dept-header">监管二科</div>
+                    <div class="person-grid" id="dept2-list">
+                        <!-- 动态填充 -->
+                    </div>
+                </div>
+                
+                <!-- 手动输入人员 -->
+                <div class="manual-input-section">
+                    <div class="manual-input-label">【供其他关使用】手动输入人员（用逗号分隔）</div>
+                    <input type="text" id="manual-input" class="manual-input" 
+                           placeholder="例如：张三,李四,王五">
+                    <div class="manual-input-desc">可输入不在列表中的人员，用逗号分隔多个姓名</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 底部操作区 -->
+        <div class="footer">
+            <div>
+                <div id="validation-message" class="validation-message">
+                    请选择检查人员
+                </div>
+                <div id="selected-persons-info" class="selected-persons-info" style="display: none;">
+                    <div id="selected-total">已选人员：0人</div>
+                    <div id="selected-list" class="selected-persons-list"></div>
+                </div>
+            </div>
+            <div>
+                <button class="btn btn-cancel" onclick="window.close()">取消</button>
+                <button class="btn btn-primary" id="dispatch-btn" onclick="dispatch()" disabled>派单</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 结果弹窗 -->
+    <div id="result-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🎉 派单成功！</h3>
+            </div>
+            <div class="modal-body">
+                <div class="result-item">
+                    <span class="result-label">物料编号：</span>
+                    <span class="result-value" id="result-declare-id"></span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">关区代码：</span>
+                    <span class="result-value" id="result-customs-code"></span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">派单人：</span>
+                    <span class="result-value" id="result-operator"></span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">检查人员：</span>
+                    <div class="result-value">
+                        <span id="result-person1"></span><br>
+                        <span id="result-person2"></span>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-cancel" onclick="closeModal()">关闭</button>
+                    <button class="btn btn-primary" onclick="copyResult()">复制结果</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        
+        // 从图片中提取的监管一科人员
+        const DEPT1_PERSONS = [
+            { name: '胡鹏', code: '6796880' },
+            { name: '邱保坚', code: '6796260' },
+            { name: '黎俐宏', code: '6784780' },
+            { name: '陈国忠', code: '6790910' },
+            { name: '胡轶凯', code: '6787380' },
+            { name: '凌逸文', code: '6779270' },
+            { name: '陈晓红', code: '6782240' },
+            { name: '黄恒', code: '6782370' },
+            { name: '梁光辉', code: '6792120' },
+            { name: '任洪海', code: '6792190' },
+            { name: '张栋文', code: '6779590' },
+            { name: '刘娜', code: '6790280' }
+        ];
+        
+        // 监管二科人员
+        const DEPT2_PERSONS = [
+            { name: '吴卓伟', code: '6781500' },
+            { name: '邢旭琴', code: '6784540' },
+            { name: '郭锐', code: '6793290' },
+            { name: '吴英彬', code: '6788610' },
+            { name: '郭超钦', code: '6792910' },
+            { name: '叶振龙', code: '6797640' },
+            { name: '邓柳', code: '6794720' },
+            { name: '李沂原', code: '6779610' },
+            { name: '何武权', code: '6789250' },
+            { name: '黄江伟', code: '6792170' }
+        ];
+        
+        let selectedPersons = []; // 存储选中的人员对象
+        let materialInfo = {};    // 物料信息
+        
+        // 页面加载
+        document.addEventListener('DOMContentLoaded', () => {
+            // 从URL获取参数
+            extractParamsFromUrl();
+            
+            // 渲染物料信息
+            renderMaterialInfo();
+            
+            // 渲染人员列表
+            renderPersonLists();
+            
+            // 更新选中状态
+            updateSelectedDisplay();
+            
+            // 监听手动输入框变化
+            document.getElementById('manual-input').addEventListener('input', handleManualInput);
+        });
+        
+        // 从URL提取参数
+        function extractParamsFromUrl() {
+            const params = new URLSearchParams(location.search);
+            materialInfo = {
+                declare_id: params.get('declare_id') || '',
+                imo: params.get('imo') || '',
+                voyage_no: params.get('voyage_no') || '',
+                customs_code: params.get('customs_code') || '',
+                ship_name_cn: params.get('ship_name_cn') || '',
+                berth: params.get('berth') || '',
+                plan_time: params.get('plan_time') || '',
+                co_cn_name: params.get('co_cn_name') || '',
+                operator: params.get('operator') || '',
+                operator_code: params.get('operator_code') || '',
+                goods_name: params.get('goods_name') || ''
+            };
+        }
+        
+        // 渲染物料信息
+        function renderMaterialInfo() {
+            const container = document.getElementById('info-grid');
+            const fields = [
+                { label: '物料编号', key: 'declare_id' },
+                { label: '船泊编号', key: 'imo' },
+                { label: '航次号', key: 'voyage_no' },
+                { label: '关区代码', key: 'customs_code' },
+                { label: '中文船名', key: 'ship_name_cn' },
+                { label: '泊位', key: 'berth' },
+                { label: '计划作业日期', key: 'plan_time' },
+                { label: '船舶服务企业', key: 'co_cn_name' },
+                { label: '派单人', key: 'operator' },
+                { label: '派单人工号', key: 'operator_code' },
+                { label: '物品名称', key: 'goods_name' }
+            ];
+            
+            let html = '';
+            fields.forEach(field => {
+                html += `
+                    <div class="info-item">
+                        <div class="info-label">${field.label}</div>
+                        <div class="info-value">${materialInfo[field.key] || '-'}</div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+        
+        // 渲染人员列表
+        function renderPersonLists() {
+            // 监管一科
+            const dept1 = document.getElementById('dept1-list');
+            dept1.innerHTML = '';
+            
+            DEPT1_PERSONS.forEach(person => {
+                const isSelected = selectedPersons.some(p => p.name === person.name && p.code === person.code);
+                dept1.innerHTML += `
+                    <div class="person-item ${isSelected ? 'selected' : ''}" 
+                         onclick="togglePerson('${person.name}', '${person.code}', '监管一科')"
+                         data-name="${person.name}" 
+                         data-code="${person.code}">
+                        <div class="custom-checkbox ${isSelected ? 'checked' : ''}"></div>
+                        <input type="checkbox" id="d1-${person.code}" 
+                               ${isSelected ? 'checked' : ''} style="display: none;">
+                        <span class="person-name">${person.name}</span>
+                        <span class="person-code">${person.code}</span>
+                    </div>
+                `;
+            });
+            
+            // 监管二科
+            const dept2 = document.getElementById('dept2-list');
+            dept2.innerHTML = '';
+            
+            DEPT2_PERSONS.forEach(person => {
+                const isSelected = selectedPersons.some(p => p.name === person.name && p.code === person.code);
+                dept2.innerHTML += `
+                    <div class="person-item ${isSelected ? 'selected' : ''}" 
+                         onclick="togglePerson('${person.name}', '${person.code}', '监管二科')"
+                         data-name="${person.name}" 
+                         data-code="${person.code}">
+                        <div class="custom-checkbox ${isSelected ? 'checked' : ''}"></div>
+                        <input type="checkbox" id="d2-${person.code}" 
+                               ${isSelected ? 'checked' : ''} style="display: none;">
+                        <span class="person-name">${person.name}</span>
+                        <span class="person-code">${person.code}</span>
+                    </div>
+                `;
+            });
+        }
+        
+        // 处理手动输入
+        function handleManualInput() {
+            const input = document.getElementById('manual-input').value.trim();
+            
+            if (!input) {
+                // 清空手动添加的人员
+                selectedPersons = selectedPersons.filter(p => !p.isManual);
+                updateSelectedDisplay();
+                return;
+            }
+            
+            // 用逗号分隔，去除空格
+            const names = input.split(/[,，]/)  // 支持中英文逗号
+                .map(name => name.trim())
+                .filter(name => name.length > 0);
+            
+            // 移除之前手动添加的人员
+            selectedPersons = selectedPersons.filter(p => !p.isManual);
+            
+            // 添加新的人员
+            names.forEach(name => {
+                if (name) {
+                    // 检查是否已经在列表中
+                    const exists = selectedPersons.some(p => p.name === name);
+                    if (!exists) {
+                        selectedPersons.push({ 
+                            name: name, 
+                            code: '',  // 手动输入没有编号
+                            isManual: true 
+                        });
+                    }
+                }
+            });
+            
+            updateSelectedDisplay();
+        }
+        
+        // 切换人员选择
+        function togglePerson(name, code, dept) {
+            const index = selectedPersons.findIndex(p => p.name === name && p.code === code);
+            
+            if (index === -1) {
+                selectedPersons.push({ name, code, isManual: false });
+            } else {
+                selectedPersons.splice(index, 1);
+            }
+            
+            updateSelectedDisplay();
+        }
+        
+        // 更新选中显示
+        function updateSelectedDisplay() {
+            const totalCount = document.getElementById('selected-total');
+            const list = document.getElementById('selected-list');
+            const validationMsg = document.getElementById('validation-message');
+            const selectedInfo = document.getElementById('selected-persons-info');
+            const btn = document.getElementById('dispatch-btn');
+            
+            const totalPersons = selectedPersons.length;
+            
+            // 更新总数
+            totalCount.textContent = `已选人员：${totalPersons}人`;
+            
+            // 更新列表
+            if (totalPersons > 0) {
+                let html = '';
+                selectedPersons.forEach((person, index) => {
+                    const displayText = person.code ? `${person.name} (${person.code})` : person.name;
+                    html += `
+                        <span style="display: inline-block; margin-right: 8px; margin-bottom: 4px;">
+                            ${displayText}
+                        </span>
+                    `;
+                });
+                list.innerHTML = html;
+                selectedInfo.style.display = 'block';
+            } else {
+                selectedInfo.style.display = 'none';
+            }
+            
+            // 更新复选框状态
+            updateCheckboxStates();
+            
+            // 验证
+            if (totalPersons < 3) {
+                validationMsg.textContent = `请至少选择3名检查人员（当前：${totalPersons}人）`;
+                validationMsg.className = 'validation-message error';
+                btn.disabled = true;
+            } else {
+                validationMsg.textContent = `已选择${totalPersons}名检查人员`;
+                validationMsg.className = 'validation-message success';
+                btn.disabled = false;
+            }
+        }
+        
+        // 更新所有复选框的选中状态
+        function updateCheckboxStates() {
+            // 更新监管一科
+            DEPT1_PERSONS.forEach(person => {
+                const isSelected = selectedPersons.some(p => p.name === person.name && p.code === person.code);
+                const personItem = document.querySelector(`.person-item[data-name="${person.name}"][data-code="${person.code}"]`);
+                if (personItem) {
+                    const checkbox = personItem.querySelector('input[type="checkbox"]');
+                    const customCheckbox = personItem.querySelector('.custom-checkbox');
+                    
+                    if (checkbox) checkbox.checked = isSelected;
+                    if (customCheckbox) {
+                        customCheckbox.classList.toggle('checked', isSelected);
+                    }
+                    personItem.classList.toggle('selected', isSelected);
+                }
+            });
+            
+            // 更新监管二科
+            DEPT2_PERSONS.forEach(person => {
+                const isSelected = selectedPersons.some(p => p.name === person.name && p.code === person.code);
+                const personItem = document.querySelector(`.person-item[data-name="${person.name}"][data-code="${person.code}"]`);
+                if (personItem) {
+                    const checkbox = personItem.querySelector('input[type="checkbox"]');
+                    const customCheckbox = personItem.querySelector('.custom-checkbox');
+                    
+                    if (checkbox) checkbox.checked = isSelected;
+                    if (customCheckbox) {
+                        customCheckbox.classList.toggle('checked', isSelected);
+                    }
+                    personItem.classList.toggle('selected', isSelected);
+                }
+            });
+        }
+        
+        // 移除已选人员
+        function removeSelectedPerson(name) {
+            const index = selectedPersons.findIndex(p => p.name === name);
+            
+            if (index >= 0 && index < selectedPersons.length) {
+                const person = selectedPersons[index];
+                
+                // 如果是手动输入的人员，还需要从输入框中移除
+                if (person.isManual) {
+                    removeFromManualInput(person.name);
+                }
+                
+                selectedPersons.splice(index, 1);
+                updateSelectedDisplay();
+            }
+        }
+        
+        // 从手动输入框中移除
+        function removeFromManualInput(name) {
+            const input = document.getElementById('manual-input');
+            const currentNames = input.value.split(/[,，]/)
+                .map(n => n.trim())
+                .filter(n => n !== name && n.length > 0);
+            
+            input.value = currentNames.join(', ');
+        }
+        
+        // 派单
+        async function dispatch() {
+            if (selectedPersons.length < 3) {
+                showMessage('请至少选择3名检查人员', 'error');
+                return;
+            }
+            
+            if (!materialInfo.declare_id || !materialInfo.operator) {
+                showMessage('物料编号和派单人是必需的', 'error');
+                return;
+            }
+            
+            const btn = document.getElementById('dispatch-btn');
+            btn.disabled = true;
+            btn.textContent = '派单中...';
+            
+            try {
+                const response = await fetch('/api/dispatch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ...materialInfo,
+                        persons: selectedPersons
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showResult(data.data);
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                showMessage('派单失败: ' + error.message, 'error');
+                btn.disabled = false;
+                btn.textContent = '派单';
+            }
+        }
+        
+        // 显示结果
+        function showResult(result) {
+            document.getElementById('result-declare-id').textContent = result.declare_id;
+            document.getElementById('result-customs-code').textContent = materialInfo.customs_code || '-';
+            document.getElementById('result-operator').textContent = `${materialInfo.operator} ${materialInfo.operator_code ? '(' + materialInfo.operator_code + ')' : ''}`;
+            document.getElementById('result-person1').textContent = `${result.selected[0].person} ${result.selected[0].code ? '(' + result.selected[0].code + ')' : ''}`;
+            document.getElementById('result-person2').textContent = `${result.selected[1].person} ${result.selected[1].code ? '(' + result.selected[1].code + ')' : ''}`;
+            
+            document.getElementById('result-modal').classList.remove('hidden');
+        }
+        
+        // 关闭弹窗
+        function closeModal() {
+            document.getElementById('result-modal').classList.add('hidden');
+            window.close();
+        }
+        
+        // 复制结果
+        function copyResult() {
+            const resultText = `物料编号: ${materialInfo.declare_id}\n检查人员: ${selectedPersons.map(p => p.name).join('、')}`;
+            
+            navigator.clipboard.writeText(resultText).then(() => {
+                showMessage('已复制到剪贴板', 'success');
+                setTimeout(closeModal, 1000);
+            }).catch(err => {
+                showMessage('复制失败', 'error');
+            });
+        }
+        
+        // 显示消息
+        function showMessage(message, type = 'info') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.textContent = message;
+            document.body.appendChild(messageDiv);
+            
+            setTimeout(() => {
+                messageDiv.remove();
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

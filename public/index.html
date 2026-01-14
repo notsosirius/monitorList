@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>物料检查派单系统</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Microsoft YaHei', sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { background: #3498db; color: white; padding: 30px; border-radius: 10px; margin-bottom: 30px; text-align: center; }
+        .header h1 { font-size: 2em; margin-bottom: 10px; }
+        .card-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+        .card { background: white; padding: 30px; border-radius: 10px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.1); text-decoration: none; color: inherit; }
+        .card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.15); }
+        .card-icon { font-size: 3em; margin-bottom: 15px; }
+        .card-title { font-size: 1.3em; color: #333; margin-bottom: 10px; }
+        .card-desc { color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛃 物料检查派单系统</h1>
+            <p>海关作业系统辅助工具</p>
+        </div>
+        
+        <div class="card-container">
+            <a href="/dispatch" class="card">
+                <div class="card-icon">📋</div>
+                <h3 class="card-title">物料派单</h3>
+                <p class="card-desc">监控科使用，选择检查人员进行派单</p>
+            </a>
+            
+            <a href="/result" class="card">
+                <div class="card-icon">📝</div>
+                <h3 class="card-title">录入检查结果</h3>
+                <p class="card-desc">监管科使用，录入检查结果</p>
+            </a>
+            
+            <a href="/query" class="card">
+                <div class="card-icon">🔍</div>
+                <h3 class="card-title">查询与导出</h3>
+                <p class="card-desc">查询记录，生成检查结果公示单</p>
+            </a>
+        </div>
+    </div>
+</body>
+</html>

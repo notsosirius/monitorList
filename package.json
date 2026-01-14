@@ -1,0 +1,16 @@
+{
+  "name": "material-check-v1",
+  "version": "1.0.0",
+  "description": "海关物料检查派单系统",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dmdb": "^1.0.43524",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1"
+  }
+}

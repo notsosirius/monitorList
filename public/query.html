@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>查询与导出</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Microsoft YaHei', sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        
+        /* 头部 - 蓝色主题 */
+        .header { 
+            background: #3498db; 
+            color: white; 
+            padding: 20px; 
+            border-radius: 8px 8px 0 0; 
+            margin-bottom: 0;
+        }
+        .header h1 { font-size: 1.8em; margin-bottom: 8px; }
+        .header p { font-size: 0.95em; opacity: 0.9; }
+        
+        /* 搜索区域 */
+        .search-section { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 0 0 8px 8px; 
+            margin-bottom: 20px; 
+            border: 1px solid #e0e0e0;
+        }
+        .search-row { 
+            display: grid; 
+            grid-template-columns: repeat(4, 1fr); 
+            gap: 15px; 
+            margin-bottom: 15px; 
+        }
+        .search-group { display: flex; flex-direction: column; }
+        .search-label { 
+            font-size: 0.85em; 
+            color: #333; 
+            margin-bottom: 5px; 
+            font-weight: 500; 
+        }
+        .search-input, .search-select { 
+            padding: 8px 10px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            font-size: 0.9em; 
+        }
+        .search-input:focus, .search-select:focus { 
+            outline: none; 
+            border-color: #3498db; 
+        }
+        
+        /* 操作按钮区域 */
+        .action-row { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            padding-top: 15px; 
+            border-top: 1px solid #eee; 
+        }
+        .btn { 
+            padding: 8px 16px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 0.9em; 
+            transition: all 0.2s;
+        }
+        .btn:hover { opacity: 0.9; }
+        .search-btn { 
+            background: #3498db; 
+            color: white; 
+        }
+        .export-btn { 
+            background: #2ecc71; 
+            color: white; 
+        }
+        .reset-btn { 
+            background: #95a5a6; 
+            color: white; 
+        }
+        
+        /* 表格区域 */
+        .table-section { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 8px; 
+            border: 1px solid #e0e0e0;
+        }
+        .table-header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 15px; 
+        }
+        .table-title { 
+            font-size: 1.1em; 
+            color: #333; 
+            font-weight: 600; 
+        }
+        .table-container { 
+            overflow-x: auto; 
+            border-radius: 4px; 
+            border: 1px solid #e0e0e0;
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            min-width: 1200px; 
+        }
+        th { 
+            padding: 12px 10px; 
+            border-bottom: 2px solid #e0e0e0; 
+            text-align: left; 
+            background: #f8f9fa; 
+            font-weight: 600; 
+            color: #333; 
+            font-size: 0.9em;
+        }
+        td { 
+            padding: 10px; 
+            border-bottom: 1px solid #eee; 
+            text-align: left; 
+            color: #555; 
+            font-size: 0.9em;
+        }
+        tr:hover { 
+            background: #f8f9fa; 
+        }
+        
+        /* 状态标签 */
+        .status { 
+            padding: 4px 8px; 
+            border-radius: 4px; 
+            font-size: 0.85em; 
+            font-weight: 500; 
+        }
+        .status.pending { 
+            background: #fff3cd; 
+            color: #856404; 
+        }
+        .status.completed { 
+            background: #d4edda; 
+            color: #155724; 
+        }
+        
+        /* 操作按钮 */
+        .action-btn { 
+            padding: 4px 8px; 
+            background: #3498db; 
+            color: white; 
+            border: none; 
+            border-radius: 3px; 
+            cursor: pointer; 
+            font-size: 0.85em; 
+        }
+        .action-btn:hover { 
+            background: #2980b9; 
+        }
+        
+        /* 分页 */
+        .pagination { 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            gap: 10px; 
+            margin-top: 20px; 
+            padding-top: 20px; 
+            border-top: 1px solid #eee; 
+        }
+        .page-btn { 
+            padding: 6px 12px; 
+            border: 1px solid #ddd; 
+            background: white; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 0.9em; 
+        }
+        .page-btn:hover:not(:disabled) { 
+            background: #f8f9fa; 
+        }
+        .page-btn:disabled { 
+            color: #ccc; 
+            cursor: not-allowed; 
+        }
+        
+        /* 加载动画 */
+        .loading { 
+            text-align: center; 
+            padding: 40px; 
+        }
+        .spinner { 
+            width: 30px; 
+            height: 30px; 
+            border: 3px solid #f3f3f3; 
+            border-top: 3px solid #3498db; 
+            border-radius: 50%; 
+            animation: spin 1s linear infinite; 
+            margin: 0 auto 15px; 
+        }
+        @keyframes spin { 
+            0% { transform: rotate(0deg); } 
+            100% { transform: rotate(360deg); } 
+        }
+        
+        /* 空状态 */
+        .empty-state { 
+            text-align: center; 
+            padding: 60px 20px; 
+            color: #666; 
+        }
+        .empty-icon { 
+            font-size: 3em; 
+            margin-bottom: 15px; 
+            opacity: 0.5; 
+        }
+        
+        /* 消息提示 */
+        .message { 
+            position: fixed; 
+            top: 20px; 
+            right: 20px; 
+            padding: 10px 15px; 
+            background: #3498db; 
+            color: white; 
+            border-radius: 4px; 
+            z-index: 1001; 
+            font-size: 0.9em; 
+        }
+        .message.success { 
+            background: #2ecc71; 
+        }
+        .message.error { 
+            background: #e74c3c; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <div class="header">
+            <h1>🔍 查询与生成公示单</h1>
+            <p>查询记录，可录入检查结果，生成检查结果公示单</p>
+        </div>
+        
+        <!-- 搜索区域 -->
+        <div class="search-section">
+            <div class="search-row">
+                <div class="search-group">
+                    <label class="search-label">物料编号</label>
+                    <input type="text" id="search-declare-id" class="search-input" placeholder="请输入物料编号">
+                </div>
+                <div class="search-group">
+                    <label class="search-label">关区代码</label>
+                    <select id="search-customs-code" class="search-select">
+                        <option value="all">全部关区</option>
+                    </select>
+                </div>
+                <div class="search-group">
+                    <label class="search-label">船泊编号</label>
+                    <input type="text" id="search-imo" class="search-input" placeholder="请输入船泊编号">
+                </div>
+                <div class="search-group">
+                    <label class="search-label">航次号</label>
+                    <input type="text" id="search-voyage-no" class="search-input" placeholder="请输入航次号">
+                </div>
+                <div class="search-group">
+                    <label class="search-label">派单人</label>
+                    <input type="text" id="search-operator" class="search-input" placeholder="请输入派单人">
+                </div>
+                <div class="search-group">
+                    <label class="search-label">状态</label>
+                    <select id="search-status" class="search-select">
+                        <option value="all">全部状态</option>
+                        <option value="1">待检查</option>
+                        <option value="2">已检查</option>
+                    </select>
+                </div>
+                <div class="search-group">
+                    <label class="search-label">开始日期</label>
+                    <input type="date" id="search-start-date" class="search-input">
+                </div>
+                <div class="search-group">
+                    <label class="search-label">结束日期</label>
+                    <input type="date" id="search-end-date" class="search-input">
+                </div>
+            </div>
+            
+            <div class="action-row">
+                <div>
+                    <button class="btn reset-btn" onclick="resetSearch()">重置</button>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn export-btn" onclick="exportToWord()">导出公示单</button>
+                    <button class="btn search-btn" onclick="searchRecords()">🔍 搜索</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 表格区域 -->
+        <div class="table-section">
+            <div class="table-header">
+                <h3 class="table-title">📊 检查记录列表</h3>
+                <div>共 <span id="total-count">0</span> 条记录</div>
+            </div>
+            
+            <div class="table-container">
+                <table id="records-table">
+                    <thead>
+                        <tr>
+                            <th width="50">序号</th>
+                            <th width="100">关区</th>
+                            <th width="150">物料申报单号</th>
+                            <th width="120">船舶编号</th>
+                            <th width="80">航次号</th>
+                            <th width="100">检查时间</th>
+                            <th width="120">检查地点</th>
+                            <th width="100">检查方式</th>
+                            <th width="150">检查结果</th>
+                            <th width="200">检查人员</th>
+                            <th width="80">状态</th>
+                            <th width="100">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="records-body">
+                        <!-- 默认显示加载状态 -->
+                        <tr>
+                            <td colspan="12" style="text-align: center; padding: 40px;">
+                                <div class="spinner"></div>
+                                <div style="margin-top: 10px; color: #666;">正在加载最新数据...</div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- 分页 -->
+            <div class="pagination">
+                <button class="page-btn" onclick="changePage(-1)" id="prev-page" disabled>上一页</button>
+                <span id="page-info">第 1 页 / 共 1 页</span>
+                <button class="page-btn" onclick="changePage(1)" id="next-page" disabled>下一页</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let currentPage = 1;
+        let currentPageSize = 20;
+        let totalPages = 1;
+        let currentFilters = {};
+        let isInitialLoad = true; // 标记是否为首次加载
+        
+        // 页面加载完成后立即执行查询
+        document.addEventListener('DOMContentLoaded', async () => {
+            // 先加载关区代码
+            await loadCustomsCodes();
+            
+            // 然后立即执行首次查询
+            await performInitialSearch();
+        });
+        
+        // 加载关区代码
+        async function loadCustomsCodes() {
+            try {
+                const response = await fetch('/api/customs-codes');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const select = document.getElementById('search-customs-code');
+                    data.data.forEach(code => {
+                        const option = document.createElement('option');
+                        option.value = code;
+                        option.textContent = code;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('加载关区代码失败:', error);
+            }
+        }
+        
+        // 执行首次查询
+        async function performInitialSearch() {
+            // 设置初始筛选条件
+            currentFilters = {
+                declare_id: '',
+                customs_code: 'all',
+                imo: '',
+                voyage_no: '',
+                operator: '',
+                start_date: '',
+                end_date: '',
+                status: 'all'
+            };
+            
+            currentPage = 1;
+            
+            // 执行查询
+            await executeSearch();
+            isInitialLoad = false;
+        }
+        
+        // 搜索记录
+        async function searchRecords() {
+            // 更新筛选条件
+            currentFilters = {
+                declare_id: document.getElementById('search-declare-id').value.trim(),
+                customs_code: document.getElementById('search-customs-code').value,
+                imo: document.getElementById('search-imo').value.trim(),
+                voyage_no: document.getElementById('search-voyage-no').value.trim(),
+                operator: document.getElementById('search-operator').value.trim(),
+                start_date: document.getElementById('search-start-date').value,
+                end_date: document.getElementById('search-end-date').value,
+                status: document.getElementById('search-status').value
+            };
+            
+            currentPage = 1;
+            
+            // 执行查询
+            await executeSearch();
+        }
+        
+        // 执行查询操作
+        async function executeSearch() {
+            const tbody = document.getElementById('records-body');
+            
+            // 显示加载状态
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="12" style="text-align: center; padding: 40px;">
+                        <div class="spinner"></div>
+                        <div style="margin-top: 10px; color: #666;">正在查询数据...</div>
+                    </td>
+                </tr>
+            `;
+            
+            try {
+                const params = new URLSearchParams({
+                    page: currentPage,
+                    pageSize: currentPageSize
+                });
+                
+                // 添加筛选条件
+                Object.entries(currentFilters).forEach(([key, value]) => {
+                    if (value && value !== 'all') {
+                        params.set(key, value);
+                    }
+                });
+                
+                const response = await fetch(`${API_BASE}/api/records?${params}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    renderRecords(data.data);
+                    updatePagination(data.pagination);
+                    
+                    // 如果是首次加载且没有数据，显示友好的空状态
+                    if (isInitialLoad && data.data.length === 0) {
+                        renderEmptyState();
+                    }
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="12" style="text-align: center; color: #e74c3c; padding: 20px;">
+                            ❌ 查询失败: ${error.message}
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+        
+        // 渲染记录
+        function renderRecords(records) {
+            const tbody = document.getElementById('records-body');
+            const totalCount = document.getElementById('total-count');
+            
+            if (records.length === 0) {
+                renderEmptyState();
+                totalCount.textContent = '0';
+                return;
+            }
+            
+            let html = '';
+            records.forEach((record, index) => {
+                const rowIndex = (currentPage - 1) * currentPageSize + index + 1;
+                const statusText = record.status === 2 ? '已检查' : '待检查';
+                const statusClass = record.status === 2 ? 'completed' : 'pending';
+                const checkPersons = [];
+                if (record.person1) checkPersons.push(`${record.person1} (${record.person1_code})`);
+                if (record.person2) checkPersons.push(`${record.person2} (${record.person2_code})`);
+                
+                html += `
+                    <tr>
+                        <td>${rowIndex}</td>
+                        <td>${record.customs_code || '-'}</td>
+                        <td>${record.declare_id}</td>
+                        <td>${record.imo || '-'}</td>
+                        <td>${record.voyage_no || '-'}</td>
+                        <td>${record.plan_time || '-'}</td>
+                        <td>${record.berth || '-'}</td>
+                        <td>人工检查</td>
+                        <td>${record.check_result || '-'}</td>
+                        <td>${checkPersons.join('<br>') || '-'}</td>
+                        <td><span class="status ${statusClass}">${statusText}</span></td>
+                        <td>
+                            <button class="action-btn" onclick="viewDetail('${record.declare_id}')">查看</button>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            tbody.innerHTML = html;
+            totalCount.textContent = records.length;
+        }
+        
+        // 渲染空状态
+        function renderEmptyState() {
+            const tbody = document.getElementById('records-body');
+            
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="12" class="empty-state">
+                        <div class="empty-icon">📭</div>
+                        <div style="font-size: 1.1em; margin-bottom: 10px; color: #333;">
+                            暂无检查记录
+                        </div>
+                        <div style="color: #666; font-size: 0.9em; margin-bottom: 20px;">
+                            ${isInitialLoad ? '系统首次使用，还没有派单记录' : '没有找到符合条件的记录'}
+                        </div>
+                        ${isInitialLoad ? `
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; border-left: 4px solid #3498db; font-size: 0.85em; color: #666; text-align: left;">
+                                <div style="margin-bottom: 8px;">💡 使用建议：</div>
+                                <div>1. 点击"派单"菜单创建新的派单记录</div>
+                                <div>2. 派单后，监管科可录入检查结果</div>
+                                <div>3. 数据将在查询页面自动显示</div>
+                            </div>
+                        ` : ''}
+                    </td>
+                </tr>
+            `;
+        }
+        
+        // 更新分页
+        function updatePagination(pagination) {
+            totalPages = Math.ceil(pagination.total / currentPageSize);
+            document.getElementById('page-info').textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+            document.getElementById('prev-page').disabled = currentPage <= 1;
+            document.getElementById('next-page').disabled = currentPage >= totalPages;
+        }
+        
+        // 切换页面
+        async function changePage(delta) {
+            const newPage = currentPage + delta;
+            if (newPage < 1 || newPage > totalPages) return;
+            
+            currentPage = newPage;
+            
+            const params = new URLSearchParams({
+                page: currentPage,
+                pageSize: currentPageSize
+            });
+            
+            Object.entries(currentFilters).forEach(([key, value]) => {
+                if (value && value !== 'all') {
+                    params.set(key, value);
+                }
+            });
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/records?${params}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    renderRecords(data.data);
+                    updatePagination(data.pagination);
+                }
+            } catch (error) {
+                console.error('切换页面失败:', error);
+            }
+        }
+        
+        // 重置搜索
+        function resetSearch() {
+            document.getElementById('search-declare-id').value = '';
+            document.getElementById('search-customs-code').value = 'all';
+            document.getElementById('search-imo').value = '';
+            document.getElementById('search-voyage-no').value = '';
+            document.getElementById('search-operator').value = '';
+            document.getElementById('search-status').value = 'all';
+            document.getElementById('search-start-date').value = '';
+            document.getElementById('search-end-date').value = '';
+            
+            currentFilters = {
+                declare_id: '',
+                customs_code: 'all',
+                imo: '',
+                voyage_no: '',
+                operator: '',
+                start_date: '',
+                end_date: '',
+                status: 'all'
+            };
+            
+            currentPage = 1;
+            
+            // 执行查询
+            executeSearch();
+        }
+        
+        // 查看详情
+        function viewDetail(declare_id) {
+            window.open(`/result?declare_id=${declare_id}`, '_blank', 'width=800,height=600');
+        }
+        
+        // 导出公示单
+        async function exportToWord() {
+            try {
+                // 获取当前页面的所有数据
+                const params = new URLSearchParams({
+                    page: 1,
+                    pageSize: 1000
+                });
+                
+                Object.entries(currentFilters).forEach(([key, value]) => {
+                    if (value && value !== 'all') {
+                        params.set(key, value);
+                    }
+                });
+                
+                const response = await fetch(`${API_BASE}/api/records?${params}`);
+                const data = await response.json();
+                
+                if (!data.success || data.data.length === 0) {
+                    showMessage('没有可导出的数据', 'error');
+                    return;
+                }
+                
+                generateWordDocument(data.data);
+                
+            } catch (error) {
+                console.error('导出失败:', error);
+                showMessage('导出失败', 'error');
+            }
+        }
+        
+        // 生成Word文档
+        function generateWordDocument(records) {
+            const title = '进出境船舶添加、起卸物料检查结果公示单';
+            const exportTime = new Date().toLocaleString('zh-CN');
+            
+            // 创建Word文档内容
+            let html = `
+                <html xmlns:o='urn:schemas-microsoft-com:office:office' 
+                      xmlns:w='urn:schemas-microsoft-com:office:word' 
+                      xmlns='http://www.w3.org/TR/REC-html40'>
+                <head>
+                    <meta charset="utf-8">
+                    <title>${title}</title>
+                    <style>
+                        body { font-family: "SimSun", sans-serif; font-size: 12pt; }
+                        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                        th, td { border: 1px solid #000; padding: 8px; text-align: center; }
+                        th { background-color: #f2f2f2; font-weight: bold; }
+                        .title { text-align: center; font-size: 16pt; font-weight: bold; margin: 20px 0; }
+                    </style>
+                </head>
+                <body>
+                    <div class="title">${title}</div>
+                    <div>导出时间：${exportTime}</div>
+                    <div>总记录数：${records.length} 条</div>
+                    <table>
+                        <tr>
+                            <th>序号</th>
+                            <th>关区</th>
+                            <th>物料申报单号</th>
+                            <th>船舶编号</th>
+                            <th>航次号</th>
+                            <th>检查时间</th>
+                            <th>检查地点</th>
+                            <th>检查方式</th>
+                            <th>检查结果</th>
+                            <th>检查人员</th>
+                        </tr>
+            `;
+            
+            records.forEach((record, index) => {
+                const checkPersons = [];
+                if (record.person1) checkPersons.push(`${record.person1}${record.person1_code}`);
+                if (record.person2) checkPersons.push(`${record.person2}${record.person2_code}`);
+                
+                html += `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${record.customs_code || ''}</td>
+                        <td>${record.declare_id}</td>
+                        <td>${record.imo || ''}</td>
+                        <td>${record.voyage_no || ''}</td>
+                        <td>${record.plan_time || ''}</td>
+                        <td>${record.berth || ''}</td>
+                        <td>人工检查</td>
+                        <td>${record.check_result || ''}</td>
+                        <td>${checkPersons.join('<br>')}</td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                    </table>
+                </body>
+                </html>
+            `;
+            
+            // 创建并下载文件
+            const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `检查结果公示单_${new Date().toISOString().split('T')[0]}.doc`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            
+            showMessage('Word文档导出成功！', 'success');
+        }
+        
+        // 显示消息
+        function showMessage(message, type = 'info') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.textContent = message;
+            document.body.appendChild(messageDiv);
+            
+            setTimeout(() => {
+                messageDiv.remove();
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
