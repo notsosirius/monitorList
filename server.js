@@ -11,7 +11,7 @@ const ledgerRouter = require('./ledger.controller');
 
 // 基础应用与端口配置
 const app = express();
-const PORT = process.env.PORT || 3002;
+const PORT = process.env.PORT || 3838;
 
 // 中间件：JSON 解析、表单解析、跨域（后续插件/前端调用需要）
 app.use(cors());

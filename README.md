@@ -3,14 +3,14 @@
 后端 API 与 tax_ledger 表的数据模型说明。
 
 ## API 概览
-Base URL: http://localhost:3002
+Base URL: http://localhost:3838
 
 ### 健康检查
 - GET /api/health
 
 示例:
 ```bash
-curl http://localhost:3002/api/health
+curl http://localhost:3838/api/health
 ```
 
 ### 新建台账记录
@@ -27,7 +27,7 @@ curl http://localhost:3002/api/health
 
 示例:
 ```bash
-curl -X POST http://localhost:3002/api/ledger \
+curl -X POST http://localhost:3838/api/ledger \
   -H "Content-Type: application/json" \
   -d '{
     "declNo": "BGD-001",
@@ -52,7 +52,19 @@ Query 参数:
 
 示例:
 ```bash
-curl "http://localhost:3002/api/ledger?page=1&pageSize=20&declNo=BGD-001"
+curl "http://localhost:3838/api/ledger?page=1&pageSize=20&declNo=BGD-001"
+```
+
+### 税费岗列表
+- GET /api/ledger/tax-desk
+
+Query 参数:
+- page（默认 1）
+- pageSize（默认 100，最大 100）
+
+示例:
+```bash
+curl "http://localhost:3838/api/ledger/tax-desk?page=1&pageSize=100"
 ```
 
 ### 查询单条记录
@@ -60,7 +72,7 @@ curl "http://localhost:3002/api/ledger?page=1&pageSize=20&declNo=BGD-001"
 
 示例:
 ```bash
-curl http://localhost:3002/api/ledger/1
+curl http://localhost:3838/api/ledger/1
 ```
 
 ### 处理页更新
@@ -81,18 +93,20 @@ curl http://localhost:3002/api/ledger/1
 - additionalTaxDuty
 - additionalTaxVat
 - remark
-- taxStatus
+
+说明:
+- 改单日期（amendDate）必须 >= 最晚发票日期 且 >= 申报日期
+- 改单日期非空时，税费岗状态自动置为“未处置”
 
 示例:
 ```bash
-curl -X PATCH http://localhost:3002/api/ledger/1 \
+curl -X PATCH http://localhost:3838/api/ledger/1 \
   -H "Content-Type: application/json" \
   -d '{
     "infoExchange": "Call completed",
     "inquiryStartDate": "2025-01-10",
     "challengeDate": "2025-01-12",
-    "amendDate": "2025-01-18",
-    "taxStatus": "processed"
+    "amendDate": "2025-01-18"
   }'
 ```
 
@@ -114,7 +128,7 @@ curl -X PATCH http://localhost:3002/api/ledger/1 \
 
 示例:
 ```bash
-curl -X PATCH http://localhost:3002/api/ledger/by-decl-no \
+curl -X PATCH http://localhost:3838/api/ledger/by-decl-no \
   -H "Content-Type: application/json" \
   -d '{
     "declNo": "BGD-001",
@@ -131,12 +145,48 @@ curl -X PATCH http://localhost:3002/api/ledger/by-decl-no \
 请求体:
 - taxStatus（必填）
 
+说明:
+- taxStatus 仅允许为“未处置”或“已处置”
+- 设置为“已处置”前会校验改单日期是否满足规则
+
 示例:
 ```bash
-curl -X PATCH http://localhost:3002/api/ledger/1/tax-status \
+curl -X PATCH http://localhost:3838/api/ledger/1/tax-status \
   -H "Content-Type: application/json" \
-  -d '{ "taxStatus": "processed" }'
+  -d '{ "taxStatus": "已处置" }'
 ```
+
+### 导出 Excel
+- GET /api/ledger/export
+
+Query 参数:
+- declNo（可选）
+- amendDateFrom（YYYY-MM-DD，可选）
+- amendDateTo（YYYY-MM-DD，可选）
+
+示例:
+```bash
+curl -o "tax_ledger.xlsx" "http://localhost:3838/api/ledger/export?amendDateFrom=2026-01-01&amendDateTo=2026-01-31"
+```
+
+说明:
+- 导出使用 `xlsx` 依赖，目前存在上游高危漏洞（无修复版本）；仅在内网受控环境使用。
+
+## 前端运行（Vite + Vue 3）
+进入前端目录后启动开发服务：
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+默认访问地址：
+- http://localhost:5173
+
+说明：
+- 前端已配置代理，将 `/api` 转发到 `http://localhost:3838`
+- 先启动后端 `node server.js`，再启动前端开发服务
 
 ## SQL 建表建议（DMDB）
 与当前代码一致的建议结构:

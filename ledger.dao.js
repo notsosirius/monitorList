@@ -219,6 +219,75 @@ class LedgerDao {
       total: count[0]?.total || 0
     };
   }
+
+  // 税费岗列表（仅展示改单日期非空记录）
+  async listTaxDesk(filters) {
+    const params = [];
+    const where = 'WHERE amend_date IS NOT NULL';
+    const orderBy = `
+      ORDER BY
+        CASE WHEN tax_status = '已处置' THEN 1 ELSE 0 END ASC,
+        amend_date DESC
+    `;
+
+    const offset = (filters.page - 1) * filters.pageSize;
+    const sql = `
+      SELECT * FROM tax_ledger
+      ${where}
+      ${orderBy}
+      LIMIT ? OFFSET ?
+    `;
+
+    const countSql = `SELECT COUNT(*) AS total FROM tax_ledger ${where}`;
+    const [items, count] = await Promise.all([
+      db.query(sql, [...params, filters.pageSize, offset]),
+      db.query(countSql, params)
+    ]);
+
+    return {
+      items,
+      total: count[0]?.total || 0
+    };
+  }
+
+  // 导出列表（过滤 + 排序，不分页）
+  async exportLedgers(filters) {
+    const params = [];
+    let where = 'WHERE 1=1';
+
+    if (filters.declNo) {
+      where += ' AND decl_no = ?';
+      params.push(filters.declNo);
+    }
+
+    if (filters.amendDateFrom && filters.amendDateTo) {
+      where += ' AND amend_date IS NOT NULL AND amend_date BETWEEN ? AND ?';
+      params.push(filters.amendDateFrom, filters.amendDateTo);
+    }
+
+    const orderBy = `
+      ORDER BY
+        CASE WHEN amend_date IS NULL THEN 0 ELSE 1 END ASC,
+        CASE WHEN amend_date IS NULL AND challenge_date IS NULL THEN 0 ELSE 1 END ASC,
+        CASE WHEN amend_date IS NOT NULL THEN amend_date ELSE NULL END DESC,
+        CASE
+          WHEN amend_date IS NULL AND challenge_date IS NULL THEN (CURRENT_DATE - final_invoice_date)
+          ELSE NULL
+        END DESC,
+        CASE
+          WHEN amend_date IS NULL AND challenge_date IS NOT NULL THEN final_invoice_date
+          ELSE NULL
+        END ASC
+    `;
+
+    const sql = `
+      SELECT * FROM tax_ledger
+      ${where}
+      ${orderBy}
+    `;
+
+    return db.query(sql, params);
+  }
 }
 
 module.exports = new LedgerDao();

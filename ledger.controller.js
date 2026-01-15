@@ -4,6 +4,7 @@
 // 2) 调用 Service 完成业务逻辑。
 // 3) 仅负责协议与错误码，不处理 SQL。
 const express = require('express');
+const XLSX = require('xlsx');
 const ledgerService = require('./ledger.service');
 
 const router = express.Router();
@@ -81,6 +82,101 @@ router.get('/ledger', async (req, res) => {
   }
 });
 
+// 税费岗列表（含分页）
+router.get('/ledger/tax-desk', async (req, res) => {
+  try {
+    const page = Math.max(parseInt(req.query.page || '1', 10), 1);
+    const rawPageSize = parseInt(req.query.pageSize || '100', 10);
+    const pageSize = rawPageSize > 100 ? 100 : rawPageSize;
+
+    const result = await ledgerService.listTaxDesk({ page, pageSize });
+    res.json({
+      page,
+      pageSize,
+      total: result.total,
+      items: result.items
+    });
+  } catch (error) {
+    res.status(500).json({ message: '查询失败' });
+  }
+});
+
+// 导出 Excel（按当前筛选条件）
+router.get('/ledger/export', async (req, res) => {
+  try {
+    const filters = {
+      declNo: req.query.declNo || null,
+      amendDateFrom: req.query.amendDateFrom || null,
+      amendDateTo: req.query.amendDateTo || null
+    };
+
+    const items = await ledgerService.exportLedgers(filters);
+    const header = [
+      '报关单号',
+      '商品名称',
+      '申报日期',
+      '最晚发票日期',
+      '最晚结算资料日期',
+      '资料签收日期',
+      '是否超30天（签收-发票）',
+      '资料交互情况',
+      '询价发起日期',
+      '质疑日期',
+      '磋商日期',
+      '审价作业表日期',
+      '改单日期（已审价）',
+      '是否超30天（改单-发票）',
+      '是否超270天（改单-申报）',
+      '延续性征税（关税）',
+      '延续性征税（增值税）',
+      '审价补税（关税）',
+      '审价补税（增值税）',
+      '备注'
+    ];
+
+    const rows = items.map((item) => [
+      item.decl_no,
+      item.goods_name,
+      item.declare_date,
+      item.final_invoice_date,
+      item.latest_settle_date,
+      item.doc_receipt_date,
+      item.days_receipt_invoice,
+      item.info_exchange,
+      item.inquiry_start_date,
+      item.challenge_date,
+      item.negotiation_date,
+      item.valuation_work_date,
+      item.amend_date,
+      item.days_amend_invoice,
+      item.days_amend_declare,
+      item.continu_tax_duty,
+      item.continu_tax_vat,
+      item.additional_tax_duty,
+      item.additional_tax_vat,
+      item.remark
+    ]);
+
+    const sheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'tax_ledger');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    const from = filters.amendDateFrom || '全部';
+    const to = filters.amendDateTo || '全部';
+    const filename = `税收征管关键节点监控_改单日期_${from}_至_${to}.xlsx`;
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ message: '导出失败' });
+  }
+});
+
 // 查询单条
 router.get('/ledger/:id', async (req, res) => {
   try {
@@ -116,12 +212,15 @@ router.patch('/ledger/:id', async (req, res) => {
       continu_tax_vat: body.continuTaxVat,
       additional_tax_duty: body.additionalTaxDuty,
       additional_tax_vat: body.additionalTaxVat,
-      remark: body.remark,
-      tax_status: body.taxStatus
+      remark: body.remark
     });
 
     return res.json({ message: '更新成功' });
   } catch (error) {
+    // 业务校验不通过时返回 400，其余错误返回 500
+    if (error?.code === 'INVALID_TAX_STATUS' || error?.code === 'AMEND_DATE_INVALID') {
+      return res.status(400).json({ message: error.message });
+    }
     return res.status(500).json({ message: '更新失败' });
   }
 });
@@ -180,9 +279,18 @@ router.patch('/ledger/:id/tax-status', async (req, res) => {
     if (!status) {
       return res.status(400).json({ message: '税费岗状态不能为空' });
     }
+    // 接口层枚举校验，避免非法状态进入业务层
+    const allowedStatuses = ['未处置', '已处置'];
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({ message: '税费岗状态仅允许为“未处置”或“已处置”' });
+    }
     await ledgerService.updateTaxStatus(id, status);
     return res.json({ message: '更新成功' });
   } catch (error) {
+    // 业务校验不通过时返回 400，其余错误返回 500
+    if (error?.code === 'INVALID_TAX_STATUS' || error?.code === 'AMEND_DATE_INVALID') {
+      return res.status(400).json({ message: error.message });
+    }
     return res.status(500).json({ message: '更新失败' });
   }
 });
