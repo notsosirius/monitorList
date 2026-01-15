@@ -61,9 +61,32 @@ watchEffect(() => {
   }
 });
 
+// 格式化日期为 YYYY-MM-DD，避免时区显示偏移
+function formatDate(value) {
+  if (!value) return '';
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  if (typeof value === 'string' && value.includes('T')) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+  }
+  return '';
+}
+
 // 空值兜底显示
 function displayValue(value) {
   if (value === null || value === undefined || value === '') return '-';
+  const dateText = formatDate(value);
+  if (dateText) return dateText;
   return value;
 }
 </script>

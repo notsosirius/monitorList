@@ -54,12 +54,13 @@ class LedgerService {
     };
   }
 
-  // 紧急状态圆点规则
+  // 紧急状态圆点规则（基于第13项/第10项/第4项与当前时间）
   computeUrgency(record) {
     if (record.amend_date) return 'green';
 
     if (!record.challenge_date) {
-      const days = this.calcDaysDiff(record.doc_receipt_date, record.final_invoice_date);
+      // 当前时间减最晚发票日期（第4项）
+      const days = this.calcDaysDiff(new Date(), record.final_invoice_date);
       if (days !== null && days > 20) return 'red';
       if (days !== null && days > 10) return 'orange';
       return 'yellow';

@@ -38,7 +38,7 @@ body {
 }
 
 .page {
-  max-width: 1200px;
+  max-width: 1600px;
   margin: 0 auto;
 }
 
@@ -52,7 +52,7 @@ body {
 
 .page-header h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: 35px;
   letter-spacing: 0.02em;
 }
 
@@ -209,22 +209,23 @@ body {
 .ledger-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 17px;
 }
 
 .ledger-table th,
 .ledger-table td {
   border-bottom: 1px solid #ede7de;
-  padding: 12px 10px;
-  text-align: left;
+  padding: 14px 12px;
+  text-align: center;
   white-space: nowrap;
 }
 
 .ledger-table th {
-  font-size: 12px;
+  font-size: 16px;
   color: #7a6a55;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  text-align: center;
 }
 
 /* 紧急状态圆点 */

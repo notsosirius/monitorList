@@ -7,9 +7,6 @@ import {
   exportLedgerFile
 } from '../api/ledger';
 
-// 列表页仅通过事件通知外部跳转
-const emit = defineEmits(['view']);
-
 // 列表数据与分页状态
 const items = ref([]);
 const total = ref(0);
@@ -27,6 +24,7 @@ const editVisible = ref(false);
 const editLoading = ref(false);
 const editError = ref('');
 const editId = ref(null);
+const viewMode = ref(false);
 const editForm = ref({
   finalInvoiceDate: '',
   latestSettleDate: '',
@@ -118,7 +116,23 @@ function jumpToPage() {
 
 // 查看详情
 function viewRecord(id) {
-  emit('view', id);
+  openView(id);
+}
+
+// 将日期转为输入框需要的 YYYY-MM-DD
+function toDateInput(value) {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    if (value.includes('T')) return value.split('T')[0];
+    return value;
+  }
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  return '';
 }
 
 // 打开处理弹窗并加载详情
@@ -127,18 +141,51 @@ async function openEdit(id) {
   editLoading.value = true;
   editError.value = '';
   editId.value = id;
+  viewMode.value = false;
   try {
     const record = await fetchLedgerById(id);
     editForm.value = {
-      finalInvoiceDate: record.final_invoice_date || '',
-      latestSettleDate: record.latest_settle_date || '',
-      docReceiptDate: record.doc_receipt_date || '',
+      finalInvoiceDate: toDateInput(record.final_invoice_date),
+      latestSettleDate: toDateInput(record.latest_settle_date),
+      docReceiptDate: toDateInput(record.doc_receipt_date),
       infoExchange: record.info_exchange || '',
-      inquiryStartDate: record.inquiry_start_date || '',
-      challengeDate: record.challenge_date || '',
-      negotiationDate: record.negotiation_date || '',
-      valuationWorkDate: record.valuation_work_date || '',
-      amendDate: record.amend_date || '',
+      inquiryStartDate: toDateInput(record.inquiry_start_date),
+      challengeDate: toDateInput(record.challenge_date),
+      negotiationDate: toDateInput(record.negotiation_date),
+      valuationWorkDate: toDateInput(record.valuation_work_date),
+      amendDate: toDateInput(record.amend_date),
+      continuTaxDuty: record.continu_tax_duty ?? '',
+      continuTaxVat: record.continu_tax_vat ?? '',
+      additionalTaxDuty: record.additional_tax_duty ?? '',
+      additionalTaxVat: record.additional_tax_vat ?? '',
+      remark: record.remark || ''
+    };
+  } catch (error) {
+    editError.value = error.message || '加载失败';
+  } finally {
+    editLoading.value = false;
+  }
+}
+
+// 打开查看弹窗（只读）
+async function openView(id) {
+  editVisible.value = true;
+  editLoading.value = true;
+  editError.value = '';
+  editId.value = id;
+  viewMode.value = true;
+  try {
+    const record = await fetchLedgerById(id);
+    editForm.value = {
+      finalInvoiceDate: toDateInput(record.final_invoice_date),
+      latestSettleDate: toDateInput(record.latest_settle_date),
+      docReceiptDate: toDateInput(record.doc_receipt_date),
+      infoExchange: record.info_exchange || '',
+      inquiryStartDate: toDateInput(record.inquiry_start_date),
+      challengeDate: toDateInput(record.challenge_date),
+      negotiationDate: toDateInput(record.negotiation_date),
+      valuationWorkDate: toDateInput(record.valuation_work_date),
+      amendDate: toDateInput(record.amend_date),
       continuTaxDuty: record.continu_tax_duty ?? '',
       continuTaxVat: record.continu_tax_vat ?? '',
       additionalTaxDuty: record.additional_tax_duty ?? '',
@@ -157,10 +204,12 @@ function closeEdit() {
   editVisible.value = false;
   editError.value = '';
   editId.value = null;
+  viewMode.value = false;
 }
 
 // 提交处理页更新
 async function submitEdit() {
+  if (viewMode.value) return;
   if (!editId.value) return;
   editLoading.value = true;
   editError.value = '';
@@ -229,9 +278,32 @@ function handleReset() {
   loadList();
 }
 
+// 格式化日期为 YYYY-MM-DD，避免时区显示偏移
+function formatDate(value) {
+  if (!value) return '';
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  if (typeof value === 'string' && value.includes('T')) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+  }
+  return '';
+}
+
 // 空值兜底显示
 function displayValue(value) {
   if (value === null || value === undefined || value === '') return '-';
+  const dateText = formatDate(value);
+  if (dateText) return dateText;
   return value;
 }
 
@@ -362,7 +434,6 @@ onMounted(() => {
               <td>{{ displayValue(row.tax_status) }}</td>
               <td>
                 <button class="btn small" type="button" @click="viewRecord(row.id)">查看</button>
-                <!-- 处理页在下一阶段实现，先展示入口 -->
                 <button class="btn small ghost" type="button" @click="openEdit(row.id)">处理</button>
               </td>
             </tr>
@@ -375,7 +446,7 @@ onMounted(() => {
       <div class="modal-card">
         <header class="modal-header">
           <div>
-            <p class="eyebrow">处理</p>
+            <p class="eyebrow">{{ viewMode ? '查看' : '处理' }}</p>
             <h2>税收征管关键节点监控</h2>
           </div>
           <button class="btn ghost" type="button" @click="closeEdit">关闭</button>
@@ -387,64 +458,66 @@ onMounted(() => {
           <div class="form-grid">
             <label>
               最晚发票日期
-              <input v-model="editForm.finalInvoiceDate" type="date" />
+              <input v-model="editForm.finalInvoiceDate" type="date" :disabled="viewMode" />
             </label>
             <label>
               最晚结算资料日期
-              <input v-model="editForm.latestSettleDate" type="date" />
+              <input v-model="editForm.latestSettleDate" type="date" :disabled="viewMode" />
             </label>
             <label>
               资料签收日期
-              <input v-model="editForm.docReceiptDate" type="date" />
+              <input v-model="editForm.docReceiptDate" type="date" :disabled="viewMode" />
             </label>
             <label>
               资料交互情况
-              <input v-model="editForm.infoExchange" type="text" />
+              <input v-model="editForm.infoExchange" type="text" :disabled="viewMode" />
             </label>
             <label>
               询价发起日期
-              <input v-model="editForm.inquiryStartDate" type="date" />
+              <input v-model="editForm.inquiryStartDate" type="date" :disabled="viewMode" />
             </label>
             <label>
               质疑日期
-              <input v-model="editForm.challengeDate" type="date" />
+              <input v-model="editForm.challengeDate" type="date" :disabled="viewMode" />
             </label>
             <label>
               磋商日期
-              <input v-model="editForm.negotiationDate" type="date" />
+              <input v-model="editForm.negotiationDate" type="date" :disabled="viewMode" />
             </label>
             <label>
               审价作业表日期
-              <input v-model="editForm.valuationWorkDate" type="date" />
+              <input v-model="editForm.valuationWorkDate" type="date" :disabled="viewMode" />
             </label>
             <label>
               改单日期（已审价）
-              <input v-model="editForm.amendDate" type="date" />
+              <input v-model="editForm.amendDate" type="date" :disabled="viewMode" />
             </label>
             <label>
               延续性征税（关税）
-              <input v-model="editForm.continuTaxDuty" type="number" step="0.01" />
+              <input v-model="editForm.continuTaxDuty" type="number" step="0.01" :disabled="viewMode" />
             </label>
             <label>
               延续性征税（增值税）
-              <input v-model="editForm.continuTaxVat" type="number" step="0.01" />
+              <input v-model="editForm.continuTaxVat" type="number" step="0.01" :disabled="viewMode" />
             </label>
             <label>
               审价补税（关税）
-              <input v-model="editForm.additionalTaxDuty" type="number" step="0.01" />
+              <input v-model="editForm.additionalTaxDuty" type="number" step="0.01" :disabled="viewMode" />
             </label>
             <label>
               审价补税（增值税）
-              <input v-model="editForm.additionalTaxVat" type="number" step="0.01" />
+              <input v-model="editForm.additionalTaxVat" type="number" step="0.01" :disabled="viewMode" />
             </label>
             <label class="full">
               备注
-              <textarea v-model="editForm.remark" rows="3"></textarea>
+              <textarea v-model="editForm.remark" rows="3" :disabled="viewMode"></textarea>
             </label>
           </div>
           <div class="modal-actions">
-            <button class="btn" type="submit">保存</button>
-            <button class="btn ghost" type="button" @click="closeEdit">取消</button>
+            <button v-if="!viewMode" class="btn" type="submit">保存</button>
+            <button class="btn ghost" type="button" @click="closeEdit">
+              {{ viewMode ? '关闭' : '取消' }}
+            </button>
           </div>
         </form>
       </div>
