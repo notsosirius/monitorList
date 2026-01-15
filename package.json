@@ -1,11 +1,11 @@
 {
-  "name": "material-check-v1",
+  "name": "tax_ledger_monitor",
   "version": "1.0.0",
-  "description": "海关物料检查派单系统",
-  "main": "src/server.js",
+  "description": "税收征管关键节点监控",
+  "main": "server.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node src/server.js"
+    "start": "node server.js",
+    "dev": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
