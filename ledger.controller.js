@@ -9,6 +9,54 @@ const ledgerService = require('./ledger.service');
 
 const router = express.Router();
 
+// 报关单号校验：仅允许 18 位数字
+function isValidDeclNo(value) {
+  return typeof value === 'string' && /^\d{18}$/.test(value);
+}
+
+// 文本字段规范化：去空白 + 长度限制（超限返回错误对象）
+function normalizeText(value, maxLength) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (maxLength && text.length > maxLength) {
+    return { error: `字段长度超过限制（最大 ${maxLength}）` };
+  }
+  return text;
+}
+
+// 数值字段规范化：空值 -> null，非数字 -> 错误对象
+function normalizeNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  // 允许千分位与尾部空格（如 "1,234.00 "）
+  const text = String(value).trim().replace(/,/g, '');
+  if (!text) return null;
+  const num = Number(text);
+  if (!Number.isFinite(num)) {
+    return { error: '数值格式不合法' };
+  }
+  return num;
+}
+
+// 日期字段规范化：统一输出 YYYY-MM-DD（仅接受 yyyy/mm/dd 或 yyyy-mm-dd）
+function normalizeDate(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  const text = String(value).trim();
+  if (!text) return null;
+  const match = text.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+  if (!match) return { error: '日期格式不合法' };
+  const year = match[1];
+  const month = match[2].padStart(2, '0');
+  const day = match[3].padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // 新建记录（含重复预检）
 // 字段来源：
 // - declNo / goodsName / declareDate：插件从页面 A 抓取
@@ -27,6 +75,9 @@ router.post('/ledger', async (req, res) => {
 
     if (!declNo) {
       return res.status(400).json({ message: '报关单号不能为空' });
+    }
+    if (!isValidDeclNo(declNo)) {
+      return res.status(400).json({ message: '报关单号必须为 18 位数字' });
     }
 
     const result = await ledgerService.createLedger(
@@ -58,12 +109,27 @@ router.post('/ledger', async (req, res) => {
 // 查询列表（含分页与筛选）
 router.get('/ledger', async (req, res) => {
   try {
+    if (req.query.declNo && !isValidDeclNo(req.query.declNo)) {
+      return res.status(400).json({ message: '报关单号必须为 18 位数字' });
+    }
+    // 报关单号尾号筛选（支持多选，格式：0,1,2）
+    let declNoSuffixes = null;
+    if (req.query.declNoSuffixes) {
+      const raw = String(req.query.declNoSuffixes)
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const deduped = Array.from(new Set(raw));
+      const valid = deduped.filter((value) => /^\d$/.test(value));
+      declNoSuffixes = valid.length ? valid : null;
+    }
     const page = Math.max(parseInt(req.query.page || '1', 10), 1);
     const rawPageSize = parseInt(req.query.pageSize || '100', 10);
     const pageSize = rawPageSize > 100 ? 100 : rawPageSize;
 
     const filters = {
       declNo: req.query.declNo || null,
+      declNoSuffixes,
       amendDateFrom: req.query.amendDateFrom || null,
       amendDateTo: req.query.amendDateTo || null,
       page,
@@ -101,11 +167,217 @@ router.get('/ledger/tax-desk', async (req, res) => {
   }
 });
 
+// Excel 导入（只读取首个工作表 + 严格校验字段，拒绝异常内容）
+router.post(
+  '/ledger/import',
+  express.raw({
+    type: [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/octet-stream'
+    ],
+    limit: '5mb'
+  }),
+  async (req, res) => {
+    try {
+      if (!req.body || !req.body.length) {
+        return res.status(400).send('未收到 Excel 文件内容');
+      }
+
+      // 仅解析首个工作表，避免多表混淆
+      const workbook = XLSX.read(req.body, { type: 'buffer', cellDates: true });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      if (!sheet) {
+        return res.status(400).send('Excel 内容为空');
+      }
+
+      // 统一按二维数组读取，第一行作为表头
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+      if (!rows.length) {
+        return res.status(400).send('Excel 内容为空');
+      }
+
+      const header = rows[0].map((cell) => String(cell).trim());
+      const headerMap = {
+        '报关单号': 'decl_no',
+        '商品名称': 'goods_name',
+        '申报日期': 'declare_date',
+        '最晚发票日期': 'final_invoice_date',
+        '最晚结算资料日期': 'latest_settle_date',
+        '资料签收日期': 'doc_receipt_date',
+        '资料交互情况': 'info_exchange',
+        '询价发起日期': 'inquiry_start_date',
+        '质疑日期': 'challenge_date',
+        '磋商日期': 'negotiation_date',
+        '审价作业表日期': 'valuation_work_date',
+        '改单日期（已审价）': 'amend_date',
+        '延续性征税（关税）': 'continu_tax_duty',
+        '延续性征税（增值税）': 'continu_tax_vat',
+        '审价补税（关税）': 'additional_tax_duty',
+        '审价补税（增值税）': 'additional_tax_vat',
+        '备注': 'remark'
+      };
+
+      // 将表头映射成字段名数组（未知列忽略）
+      const columns = header.map((name) => headerMap[name] || null);
+      if (!columns.includes('decl_no')) {
+        return res.status(400).send('缺少必填列：报关单号');
+      }
+
+      // 控制导入规模，降低滥用与误操作风险
+      if (rows.length > 2001) {
+        return res.status(400).send('单次导入最多支持 2000 行');
+      }
+
+      const errors = [];
+      const records = [];
+
+      for (let i = 1; i < rows.length; i += 1) {
+        const row = rows[i];
+        const record = {};
+        let hasValue = false;
+
+        columns.forEach((key, index) => {
+          if (!key) return;
+          const value = row[index];
+          if (value !== null && value !== undefined && value !== '') {
+            hasValue = true;
+          }
+
+          // 日期字段：统一转 YYYY-MM-DD
+          if (
+            key === 'declare_date' ||
+            key === 'final_invoice_date' ||
+            key === 'latest_settle_date' ||
+            key === 'doc_receipt_date' ||
+            key === 'inquiry_start_date' ||
+            key === 'challenge_date' ||
+            key === 'negotiation_date' ||
+            key === 'valuation_work_date' ||
+            key === 'amend_date'
+          ) {
+            const normalized = normalizeDate(value);
+            if (normalized?.error) {
+              errors.push(`第 ${i + 1} 行日期格式不合法`);
+            } else {
+              record[key] = normalized;
+            }
+            return;
+          }
+
+          // 税费字段：仅允许数值
+          if (
+            key === 'continu_tax_duty' ||
+            key === 'continu_tax_vat' ||
+            key === 'additional_tax_duty' ||
+            key === 'additional_tax_vat'
+          ) {
+            const normalized = normalizeNumber(value);
+            if (normalized?.error) {
+              errors.push(`第 ${i + 1} 行税费数值不合法`);
+            } else {
+              record[key] = normalized;
+            }
+            return;
+          }
+
+          // 文本字段：长度限制与去空白
+          if (key === 'goods_name') {
+            const normalized = normalizeText(value, 500);
+            if (normalized?.error) {
+              errors.push(`第 ${i + 1} 行商品名称过长`);
+            } else {
+              record[key] = normalized;
+            }
+            return;
+          }
+
+          if (key === 'info_exchange') {
+            const normalized = normalizeText(value, 500);
+            if (normalized?.error) {
+              errors.push(`第 ${i + 1} 行资料交互情况过长`);
+            } else {
+              record[key] = normalized;
+            }
+            return;
+          }
+
+          if (key === 'remark') {
+            const normalized = normalizeText(value, 1000);
+            if (normalized?.error) {
+              errors.push(`第 ${i + 1} 行备注过长`);
+            } else {
+              record[key] = normalized;
+            }
+            return;
+          }
+
+          // 报关单号：必须 18 位数字
+          if (key === 'decl_no') {
+            const declNo = normalizeText(value);
+            if (!declNo || !isValidDeclNo(declNo)) {
+              errors.push(`第 ${i + 1} 行报关单号必须为 18 位数字`);
+            } else {
+              record[key] = declNo;
+            }
+            return;
+          }
+
+          // 其他字段统一走文本清洗（当前无其他字段）
+          const normalized = normalizeText(value);
+          if (normalized?.error) {
+            errors.push(`第 ${i + 1} 行字段格式不合法`);
+          } else {
+            record[key] = normalized;
+          }
+        });
+
+        if (!hasValue) {
+          continue;
+        }
+        records.push(record);
+      }
+
+      if (!records.length) {
+        return res.status(400).send('没有可导入的数据行');
+      }
+
+      if (errors.length) {
+        const list = errors.slice(0, 10).join('；');
+        return res.status(400).send(`导入数据校验失败：${list}`);
+      }
+
+      const allowDuplicate = req.query.allowDuplicate === '1' || req.query.allowDuplicate === 'true';
+      const result = await ledgerService.importLedgers(records, { allowDuplicate });
+      return res.json({
+        message: '导入完成',
+        inserted: result.inserted,
+        skipped: result.skipped,
+        total: records.length
+      });
+    } catch (error) {
+      return res.status(500).send('导入失败');
+    }
+  }
+);
+
 // 导出 Excel（按当前筛选条件）
 router.get('/ledger/export', async (req, res) => {
   try {
+    // 报关单号尾号筛选（用于导出时同步过滤）
+    let declNoSuffixes = null;
+    if (req.query.declNoSuffixes) {
+      const raw = String(req.query.declNoSuffixes)
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const deduped = Array.from(new Set(raw));
+      const valid = deduped.filter((value) => /^\d$/.test(value));
+      declNoSuffixes = valid.length ? valid : null;
+    }
     const filters = {
       declNo: req.query.declNo || null,
+      declNoSuffixes,
       amendDateFrom: req.query.amendDateFrom || null,
       amendDateTo: req.query.amendDateTo || null
     };
@@ -251,6 +523,9 @@ router.patch('/ledger/by-decl-no', async (req, res) => {
     if (!declNo) {
       return res.status(400).json({ message: '报关单号不能为空' });
     }
+    if (!isValidDeclNo(declNo)) {
+      return res.status(400).json({ message: '报关单号必须为 18 位数字' });
+    }
 
     const payload = {};
     if (inquiryStartDate !== undefined) payload.inquiry_start_date = inquiryStartDate;
@@ -291,6 +566,27 @@ router.patch('/ledger/:id/tax-status', async (req, res) => {
     if (error?.code === 'INVALID_TAX_STATUS' || error?.code === 'AMEND_DATE_INVALID') {
       return res.status(400).json({ message: error.message });
     }
+    return res.status(500).json({ message: '更新失败' });
+  }
+});
+
+// 更新企业缴税日期（独立字段，避免覆盖其他字段）
+router.patch('/ledger/:id/enterprise-tax-date', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const enterpriseTaxDateRaw = req.body?.enterpriseTaxDate;
+    if (enterpriseTaxDateRaw === undefined) {
+      return res.status(400).json({ message: '企业缴税日期不能为空' });
+    }
+
+    const normalized = normalizeDate(enterpriseTaxDateRaw);
+    if (normalized?.error) {
+      return res.status(400).json({ message: '企业缴税日期格式不合法' });
+    }
+
+    await ledgerService.updateEnterpriseTaxDate(id, normalized);
+    return res.json({ message: '更新成功' });
+  } catch (error) {
     return res.status(500).json({ message: '更新失败' });
   }
 });

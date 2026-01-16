@@ -162,6 +162,17 @@ class LedgerDao {
     return db.execute(sql, params);
   }
 
+  // 仅更新企业缴税日期（避免覆盖处理页的其他字段）
+  async updateEnterpriseTaxDate(id, enterpriseTaxDate) {
+    const sql = `
+      UPDATE tax_ledger
+      SET enterprise_tax_date = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `;
+    return db.execute(sql, [enterpriseTaxDate, id]);
+  }
+
   // 查询台账列表（过滤 + 排序 + 分页）
   async listLedgers(filters) {
     const params = [];
@@ -171,6 +182,13 @@ class LedgerDao {
       // 报关单号精确匹配，返回所有满足条件的记录（再分页）
       where += ' AND decl_no = ?';
       params.push(filters.declNo);
+    }
+
+    if (filters.declNoSuffixes && filters.declNoSuffixes.length) {
+      // 报关单号尾号筛选（多选，SQL 层组装 IN 列表）
+      const placeholders = filters.declNoSuffixes.map(() => '?').join(', ');
+      where += ` AND SUBSTR(decl_no, -1) IN (${placeholders})`;
+      params.push(...filters.declNoSuffixes);
     }
 
     if (filters.amendDateFrom && filters.amendDateTo) {
@@ -250,6 +268,17 @@ class LedgerDao {
     };
   }
 
+  // 仅更新税费岗状态（避免覆盖处理页的其他字段）
+  async updateTaxStatus(id, status) {
+    const sql = `
+      UPDATE tax_ledger
+      SET tax_status = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `;
+    return db.execute(sql, [status, id]);
+  }
+
   // 导出列表（过滤 + 排序，不分页）
   async exportLedgers(filters) {
     const params = [];
@@ -258,6 +287,13 @@ class LedgerDao {
     if (filters.declNo) {
       where += ' AND decl_no = ?';
       params.push(filters.declNo);
+    }
+
+    if (filters.declNoSuffixes && filters.declNoSuffixes.length) {
+      // 报关单号尾号筛选（多选，导出同步过滤）
+      const placeholders = filters.declNoSuffixes.map(() => '?').join(', ');
+      where += ` AND SUBSTR(decl_no, -1) IN (${placeholders})`;
+      params.push(...filters.declNoSuffixes);
     }
 
     if (filters.amendDateFrom && filters.amendDateTo) {

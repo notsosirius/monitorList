@@ -4,7 +4,8 @@ import {
   fetchLedgerList,
   fetchLedgerById,
   updateLedgerById,
-  exportLedgerFile
+  exportLedgerFile,
+  importLedgerFile
 } from '../api/ledger';
 
 // 列表数据与分页状态
@@ -17,6 +18,7 @@ const loading = ref(false);
 const errorMessage = ref('');
 // 筛选条件：报关单号 + 改单日期区间
 const declNo = ref('');
+const declNoSuffixes = ref([]);
 const amendDateFrom = ref('');
 const amendDateTo = ref('');
 // 处理弹窗状态
@@ -44,6 +46,9 @@ const editForm = ref({
 
 // 导出状态：防止重复点击
 const exporting = ref(false);
+// 导入状态：防止重复点击
+const importing = ref(false);
+const importInput = ref(null);
 // 全局提示：用于保存/导出结果提示
 const toast = ref({ visible: false, message: '', type: 'success' });
 let toastTimer = null;
@@ -74,6 +79,7 @@ async function loadList() {
       page: page.value,
       pageSize: pageSize.value,
       declNo: declNo.value || undefined,
+      declNoSuffixes: declNoSuffixes.value.length ? declNoSuffixes.value : undefined,
       amendDateFrom: amendDateFrom.value || undefined,
       amendDateTo: amendDateTo.value || undefined
     });
@@ -244,6 +250,7 @@ async function handleExport() {
     exporting.value = true;
     const { blob, filename } = await exportLedgerFile({
       declNo: declNo.value || undefined,
+      declNoSuffixes: declNoSuffixes.value.length ? declNoSuffixes.value : undefined,
       amendDateFrom: amendDateFrom.value || undefined,
       amendDateTo: amendDateTo.value || undefined
     });
@@ -263,6 +270,33 @@ async function handleExport() {
   }
 }
 
+// 导入 Excel（安全校验失败时由后端返回原因）
+async function handleImportChange(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.xlsx')) {
+    showToast('仅支持 .xlsx 文件', 'error');
+    event.target.value = '';
+    return;
+  }
+
+  try {
+    importing.value = true;
+    const result = await importLedgerFile(file);
+    showToast(`导入完成：新增 ${result.inserted}，跳过 ${result.skipped}`, 'success');
+    await loadList();
+  } catch (error) {
+    showToast(error.message || '导入失败', 'error');
+  } finally {
+    importing.value = false;
+    event.target.value = '';
+  }
+}
+
+function triggerImport() {
+  importInput.value?.click();
+}
+
 // 查询：重置到第一页后加载
 function handleSearch() {
   page.value = 1;
@@ -272,6 +306,7 @@ function handleSearch() {
 // 重置筛选条件
 function handleReset() {
   declNo.value = '';
+  declNoSuffixes.value = [];
   amendDateFrom.value = '';
   amendDateTo.value = '';
   page.value = 1;
@@ -325,22 +360,55 @@ onMounted(() => {
     </header>
 
     <div class="card">
+      <div class="filters-top">
+        <div class="filter-item">
+          <label>报关单号尾号</label>
+          <div class="suffix-grid">
+            <label v-for="digit in 10" :key="digit" class="suffix-item">
+              <input
+                v-model="declNoSuffixes"
+                type="checkbox"
+                :value="String(digit - 1)"
+              />
+              <span>{{ digit - 1 }}</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
       <div class="filters">
         <div class="filter-item">
           <label>报关单号</label>
-          <input v-model.trim="declNo" type="text" placeholder="精确匹配" />
+          <input
+            v-model.trim="declNo"
+            type="text"
+            inputmode="numeric"
+            pattern="[0-9]{18}"
+            maxlength="18"
+            placeholder="精确匹配"
+          />
         </div>
         <div class="filter-item">
           <label>改单日期起</label>
-          <input v-model="amendDateFrom" type="date" />
+          <input v-model="amendDateFrom" type="date" lang="en-CA" />
         </div>
         <div class="filter-item">
           <label>改单日期止</label>
-          <input v-model="amendDateTo" type="date" />
+          <input v-model="amendDateTo" type="date" lang="en-CA" />
         </div>
         <div class="filter-actions">
           <button class="btn" type="button" @click="handleSearch">查询</button>
           <button class="btn ghost" type="button" @click="handleReset">重置</button>
+          <input
+            ref="importInput"
+            class="visually-hidden"
+            type="file"
+            accept=".xlsx"
+            @change="handleImportChange"
+          />
+          <button class="btn ghost" type="button" :disabled="importing" @click="triggerImport">
+            {{ importing ? '导入中...' : '导入 Excel' }}
+          </button>
           <button class="btn ghost" type="button" :disabled="exporting" @click="handleExport">
             {{ exporting ? '导出中...' : '导出 Excel' }}
           </button>
@@ -377,15 +445,15 @@ onMounted(() => {
         <table class="ledger-table">
           <thead>
             <tr>
-              <th>紧急</th>
-              <th>报关单号</th>
+              <th class="sticky">紧急</th>
+              <th class="sticky">报关单号</th>
               <th>商品名称</th>
               <th>申报日期</th>
               <th>最晚发票日期</th>
               <th>最晚结算资料日期</th>
               <th>资料签收日期</th>
               <th>是否超30天（签收-发票）</th>
-              <th>资料交互情况</th>
+              <th class="col-text single-line">资料交互情况</th>
               <th>询价发起日期</th>
               <th>质疑日期</th>
               <th>磋商日期</th>
@@ -397,17 +465,17 @@ onMounted(() => {
               <th>延续性征税（增值税）</th>
               <th>审价补税（关税）</th>
               <th>审价补税（增值税）</th>
-              <th>备注</th>
+              <th class="col-text single-line">备注</th>
               <th>税费岗状态</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="row in items" :key="row.id">
-              <td>
+              <td class="sticky">
                 <span class="dot" :class="`dot-${row.urgency || 'yellow'}`"></span>
               </td>
-              <td>
+              <td class="sticky">
                 <button class="link" type="button" @click="viewRecord(row.id)">
                   {{ displayValue(row.decl_no) }}
                 </button>
@@ -418,7 +486,7 @@ onMounted(() => {
               <td>{{ displayValue(row.latest_settle_date) }}</td>
               <td>{{ displayValue(row.doc_receipt_date) }}</td>
               <td>{{ displayValue(row.days_receipt_invoice) }}</td>
-              <td>{{ displayValue(row.info_exchange) }}</td>
+              <td class="col-text single-line">{{ displayValue(row.info_exchange) }}</td>
               <td>{{ displayValue(row.inquiry_start_date) }}</td>
               <td>{{ displayValue(row.challenge_date) }}</td>
               <td>{{ displayValue(row.negotiation_date) }}</td>
@@ -430,7 +498,7 @@ onMounted(() => {
               <td>{{ displayValue(row.continu_tax_vat) }}</td>
               <td>{{ displayValue(row.additional_tax_duty) }}</td>
               <td>{{ displayValue(row.additional_tax_vat) }}</td>
-              <td>{{ displayValue(row.remark) }}</td>
+              <td class="col-text single-line">{{ displayValue(row.remark) }}</td>
               <td>{{ displayValue(row.tax_status) }}</td>
               <td>
                 <button class="btn small" type="button" @click="viewRecord(row.id)">查看</button>
@@ -458,39 +526,35 @@ onMounted(() => {
           <div class="form-grid">
             <label>
               最晚发票日期
-              <input v-model="editForm.finalInvoiceDate" type="date" :disabled="viewMode" />
+              <input v-model="editForm.finalInvoiceDate" type="date" lang="en-CA" :disabled="viewMode" />
             </label>
             <label>
               最晚结算资料日期
-              <input v-model="editForm.latestSettleDate" type="date" :disabled="viewMode" />
+              <input v-model="editForm.latestSettleDate" type="date" lang="en-CA" :disabled="viewMode" />
             </label>
             <label>
               资料签收日期
-              <input v-model="editForm.docReceiptDate" type="date" :disabled="viewMode" />
-            </label>
-            <label>
-              资料交互情况
-              <input v-model="editForm.infoExchange" type="text" :disabled="viewMode" />
+              <input v-model="editForm.docReceiptDate" type="date" lang="en-CA" :disabled="viewMode" />
             </label>
             <label>
               询价发起日期
-              <input v-model="editForm.inquiryStartDate" type="date" :disabled="viewMode" />
+              <input v-model="editForm.inquiryStartDate" type="date" lang="en-CA" :disabled="viewMode" />
             </label>
             <label>
               质疑日期
-              <input v-model="editForm.challengeDate" type="date" :disabled="viewMode" />
+              <input v-model="editForm.challengeDate" type="date" lang="en-CA" :disabled="viewMode" />
             </label>
             <label>
               磋商日期
-              <input v-model="editForm.negotiationDate" type="date" :disabled="viewMode" />
+              <input v-model="editForm.negotiationDate" type="date" lang="en-CA" :disabled="viewMode" />
             </label>
             <label>
               审价作业表日期
-              <input v-model="editForm.valuationWorkDate" type="date" :disabled="viewMode" />
+              <input v-model="editForm.valuationWorkDate" type="date" lang="en-CA" :disabled="viewMode" />
             </label>
             <label>
               改单日期（已审价）
-              <input v-model="editForm.amendDate" type="date" :disabled="viewMode" />
+              <input v-model="editForm.amendDate" type="date" lang="en-CA" :disabled="viewMode" />
             </label>
             <label>
               延续性征税（关税）
@@ -507,6 +571,15 @@ onMounted(() => {
             <label>
               审价补税（增值税）
               <input v-model="editForm.additionalTaxVat" type="number" step="0.01" :disabled="viewMode" />
+            </label>
+            <label class="full">
+              资料交互情况
+              <textarea
+                v-model="editForm.infoExchange"
+                class="compact"
+                rows="2"
+                :disabled="viewMode"
+              ></textarea>
             </label>
             <label class="full">
               备注

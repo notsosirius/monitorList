@@ -160,6 +160,34 @@ class LedgerService {
     await ledgerDao.updateByDeclNo(declNo, payload);
   }
 
+  // 批量导入（用于 Excel 入库，统一重复策略与税费岗状态联动）
+  async importLedgers(rows, options = {}) {
+    const allowDuplicate = Boolean(options.allowDuplicate);
+    let inserted = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      // 不允许重复时：遇到已存在报关单号则跳过
+      if (!allowDuplicate) {
+        const existingCount = await ledgerDao.countByDeclNo(row.decl_no);
+        if (existingCount > 0) {
+          skipped += 1;
+          continue;
+        }
+      }
+
+      // 导入记录如果已有改单日期，默认置为“未处置”
+      if (row.amend_date && !row.tax_status) {
+        row.tax_status = '未处置';
+      }
+
+      await ledgerDao.insertLedger(row);
+      inserted += 1;
+    }
+
+    return { inserted, skipped };
+  }
+
   // 税费岗处置更新
   async updateTaxStatus(id, status) {
     // 状态只允许使用枚举值
@@ -184,7 +212,13 @@ class LedgerService {
       }
     }
 
-    await ledgerDao.updateLedger(id, { tax_status: status });
+    // 只更新税费岗状态，避免把其他字段置空
+    await ledgerDao.updateTaxStatus(id, status);
+  }
+
+  // 更新企业缴税日期（独立字段更新，避免覆盖其他字段）
+  async updateEnterpriseTaxDate(id, enterpriseTaxDate) {
+    await ledgerDao.updateEnterpriseTaxDate(id, enterpriseTaxDate);
   }
 }
 

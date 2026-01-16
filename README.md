@@ -25,12 +25,15 @@ curl http://localhost:3838/api/health
 - docReceiptDate
 - confirmDuplicate（是否确认重复）
 
+说明:
+- declNo 必须为 18 位数字
+
 示例:
 ```bash
 curl -X POST http://localhost:3838/api/ledger \
   -H "Content-Type: application/json" \
   -d '{
-    "declNo": "BGD-001",
+    "declNo": "123456789012345678",
     "goodsName": "Sample Goods",
     "declareDate": "2025-01-01",
     "finalInvoiceDate": "2025-01-05",
@@ -46,13 +49,13 @@ curl -X POST http://localhost:3838/api/ledger \
 Query 参数:
 - page（默认 1）
 - pageSize（默认 100，最大 100）
-- declNo（精确匹配）
+- declNo（精确匹配，18 位数字）
 - amendDateFrom（YYYY-MM-DD）
 - amendDateTo（YYYY-MM-DD）
 
 示例:
 ```bash
-curl "http://localhost:3838/api/ledger?page=1&pageSize=20&declNo=BGD-001"
+curl "http://localhost:3838/api/ledger?page=1&pageSize=20&declNo=123456789012345678"
 ```
 
 ### 税费岗列表
@@ -73,6 +76,22 @@ curl "http://localhost:3838/api/ledger/tax-desk?page=1&pageSize=100"
 示例:
 ```bash
 curl http://localhost:3838/api/ledger/1
+```
+
+### 导入 Excel
+- POST /api/ledger/import
+
+说明:
+- 仅接收 `.xlsx`，解析首个工作表
+- 单次最多 2000 行
+- 报关单号必须为 18 位数字
+- 若需允许重复报关单号，可加 `allowDuplicate=true`
+
+示例:
+```bash
+curl -X POST "http://localhost:3838/api/ledger/import" \
+  -H "Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" \
+  --data-binary "@tax_ledger.xlsx"
 ```
 
 ### 处理页更新
@@ -156,6 +175,19 @@ curl -X PATCH http://localhost:3838/api/ledger/1/tax-status \
   -d '{ "taxStatus": "已处置" }'
 ```
 
+### 更新企业缴税日期
+- PATCH /api/ledger/:id/enterprise-tax-date
+
+请求体:
+- enterpriseTaxDate（必填，YYYY-MM-DD 或空字符串）
+
+示例:
+```bash
+curl -X PATCH http://localhost:3838/api/ledger/1/enterprise-tax-date \
+  -H "Content-Type: application/json" \
+  -d '{ "enterpriseTaxDate": "2026-01-20" }'
+```
+
 ### 导出 Excel
 - GET /api/ledger/export
 
@@ -171,6 +203,7 @@ curl -o "tax_ledger.xlsx" "http://localhost:3838/api/ledger/export?amendDateFrom
 
 说明:
 - 导出使用 `xlsx` 依赖，目前存在上游高危漏洞（无修复版本）；仅在内网受控环境使用。
+- 导入同样使用 `xlsx`，建议限制为可信来源文件。
 
 ## 前端运行（Vite + Vue 3）
 进入前端目录后启动开发服务：
@@ -206,6 +239,7 @@ CREATE TABLE tax_ledger (
   negotiation_date DATE,
   valuation_work_date DATE,
   amend_date DATE,
+  enterprise_tax_date DATE,
   continu_tax_duty DECIMAL(18,2),
   continu_tax_vat DECIMAL(18,2),
   additional_tax_duty DECIMAL(18,2),

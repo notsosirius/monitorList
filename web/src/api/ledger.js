@@ -21,6 +21,10 @@ export function fetchLedgerList(params = {}) {
   if (params.pageSize) query.set('pageSize', String(params.pageSize));
   // 精确报关单号查询
   if (params.declNo) query.set('declNo', params.declNo);
+  // 报关单号尾号筛选（多选）
+  if (params.declNoSuffixes && params.declNoSuffixes.length) {
+    query.set('declNoSuffixes', params.declNoSuffixes.join(','));
+  }
   // 改单日期区间筛选（闭区间）
   if (params.amendDateFrom) query.set('amendDateFrom', params.amendDateFrom);
   if (params.amendDateTo) query.set('amendDateTo', params.amendDateTo);
@@ -56,6 +60,16 @@ export function updateTaxStatus(id, taxStatus) {
   });
 }
 
+// 企业缴税日期更新
+export function updateEnterpriseTaxDate(id, enterpriseTaxDate) {
+  const url = `${BASE_URL}/ledger/${id}/enterprise-tax-date`;
+  return requestJson(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enterpriseTaxDate })
+  });
+}
+
 // 税费岗列表（含分页）
 export function fetchTaxDeskList(params = {}) {
   const query = new URLSearchParams();
@@ -65,10 +79,38 @@ export function fetchTaxDeskList(params = {}) {
   return requestJson(url);
 }
 
+// 导入 Excel（原始二进制上传，后端做严格校验）
+export async function importLedgerFile(file, options = {}) {
+  if (!file) {
+    throw new Error('未选择 Excel 文件');
+  }
+  const query = new URLSearchParams();
+  if (options.allowDuplicate) query.set('allowDuplicate', 'true');
+  const url = `${BASE_URL}/ledger/import?${query.toString()}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type':
+        file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    },
+    body: await file.arrayBuffer()
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    const error = new Error(message || '导入失败');
+    error.status = response.status;
+    throw error;
+  }
+  return response.json();
+}
+
 // 导出 Excel（返回文件流）
 export async function exportLedgerFile(params = {}) {
   const query = new URLSearchParams();
   if (params.declNo) query.set('declNo', params.declNo);
+  if (params.declNoSuffixes && params.declNoSuffixes.length) {
+    query.set('declNoSuffixes', params.declNoSuffixes.join(','));
+  }
   if (params.amendDateFrom) query.set('amendDateFrom', params.amendDateFrom);
   if (params.amendDateTo) query.set('amendDateTo', params.amendDateTo);
 

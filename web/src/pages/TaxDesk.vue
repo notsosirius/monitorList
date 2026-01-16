@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { fetchTaxDeskList, updateTaxStatus } from '../api/ledger';
+import { fetchTaxDeskList, updateTaxStatus, updateEnterpriseTaxDate } from '../api/ledger';
 
 const emit = defineEmits(['back']);
 
@@ -21,6 +21,18 @@ const actionError = ref('');
 const toast = ref({ visible: false, message: '', type: 'success' });
 let toastTimer = null;
 
+// 企业缴税日期录入弹窗状态
+const taxDateVisible = ref(false);
+const taxDateLoading = ref(false);
+const taxDateError = ref('');
+const taxDateId = ref(null);
+const taxDateValue = ref('');
+
+// 处置确认弹窗状态
+const confirmVisible = ref(false);
+const confirmRow = ref(null);
+const confirmLoading = ref(false);
+
 function showToast(message, type = 'success') {
   toast.value = { visible: true, message, type };
   if (toastTimer) clearTimeout(toastTimer);
@@ -31,6 +43,17 @@ function showToast(message, type = 'success') {
 
 // 后端已按“未处置优先 + 改单日期降序”排序
 const sortedItems = computed(() => items.value);
+
+// 税费岗紧急状态：已处置 -> 绿色；按企业缴税日期工作日差分级
+function getTaxDeskUrgency(row) {
+  if (!row) return 'yellow';
+  if (row.tax_status === '已处置') return 'green';
+  if (!row.enterprise_tax_date) return 'yellow';
+  const businessDays = calcBusinessDaysDiff(row.enterprise_tax_date, new Date());
+  if (businessDays <= 1) return 'yellow';
+  if (businessDays <= 3) return 'orange';
+  return 'red';
+}
 
 // 计算总页数，避免分页为 0
 const totalPages = computed(() => {
@@ -88,18 +111,32 @@ function jumpToPage() {
 }
 
 // 处置：仅在未处置时可用
-async function handleProcess(row) {
+function openConfirm(row) {
   if (!row || row.tax_status === '已处置') return;
-  actionLoadingId.value = row.id;
+  confirmRow.value = row;
+  confirmVisible.value = true;
+}
+
+function closeConfirm() {
+  confirmVisible.value = false;
+  confirmRow.value = null;
+}
+
+async function confirmProcess() {
+  if (!confirmRow.value) return;
+  confirmLoading.value = true;
   actionError.value = '';
+  actionLoadingId.value = confirmRow.value.id;
   try {
-    await updateTaxStatus(row.id, '已处置');
+    await updateTaxStatus(confirmRow.value.id, '已处置');
     await loadList();
     showToast('处置成功', 'success');
+    closeConfirm();
   } catch (error) {
     actionError.value = error.message || '处置失败';
     showToast(actionError.value, 'error');
   } finally {
+    confirmLoading.value = false;
     actionLoadingId.value = null;
   }
 }
@@ -107,7 +144,98 @@ async function handleProcess(row) {
 // 空值兜底显示
 function displayValue(value) {
   if (value === null || value === undefined || value === '') return '-';
+  const dateText = formatDate(value);
+  if (dateText) return dateText;
   return value;
+}
+
+// 将日期转为输入框需要的 YYYY-MM-DD
+function toDateInput(value) {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    if (value.includes('T')) return value.split('T')[0];
+    return value;
+  }
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  return '';
+}
+
+// 格式化日期为 YYYY-MM-DD，避免时区显示偏移
+function formatDate(value) {
+  if (!value) return '';
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  if (typeof value === 'string' && value.includes('T')) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+  }
+  return '';
+}
+
+// 计算两个日期之间的工作日差（不含起始日，含结束日）
+function calcBusinessDaysDiff(startDate, endDate) {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+  const startOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endOnly = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  if (startOnly >= endOnly) return 0;
+
+  let count = 0;
+  const cursor = new Date(startOnly);
+  cursor.setDate(cursor.getDate() + 1);
+  while (cursor <= endOnly) {
+    const day = cursor.getDay();
+    if (day !== 0 && day !== 6) count += 1;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
+function openTaxDate(row) {
+  if (!row) return;
+  taxDateVisible.value = true;
+  taxDateError.value = '';
+  taxDateId.value = row.id;
+  taxDateValue.value = toDateInput(row.enterprise_tax_date);
+}
+
+function closeTaxDate() {
+  taxDateVisible.value = false;
+  taxDateError.value = '';
+  taxDateId.value = null;
+  taxDateValue.value = '';
+}
+
+async function submitTaxDate() {
+  if (!taxDateId.value) return;
+  taxDateLoading.value = true;
+  taxDateError.value = '';
+  try {
+    await updateEnterpriseTaxDate(taxDateId.value, taxDateValue.value || null);
+    await loadList();
+    showToast('企业缴税日期已更新', 'success');
+    closeTaxDate();
+  } catch (error) {
+    taxDateError.value = error.message || '更新失败';
+    showToast(taxDateError.value, 'error');
+  } finally {
+    taxDateLoading.value = false;
+  }
 }
 
 onMounted(() => {
@@ -159,33 +287,47 @@ onMounted(() => {
         <table class="ledger-table">
           <thead>
             <tr>
-              <th>报关单号</th>
+              <th class="sticky">紧急</th>
+              <th class="sticky">报关单号</th>
               <th>商品名称</th>
               <th>改单日期（已审价）</th>
               <th>延续性征税（关税）</th>
               <th>延续性征税（增值税）</th>
               <th>审价补税（关税）</th>
               <th>审价补税（增值税）</th>
+              <th>企业缴税日期</th>
               <th>税费岗状态</th>
               <th>处置</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="row in sortedItems" :key="row.id">
-              <td>{{ displayValue(row.decl_no) }}</td>
+              <td class="sticky">
+                <span class="dot" :class="`dot-${getTaxDeskUrgency(row)}`"></span>
+              </td>
+              <td class="sticky">{{ displayValue(row.decl_no) }}</td>
               <td>{{ displayValue(row.goods_name) }}</td>
               <td>{{ displayValue(row.amend_date) }}</td>
               <td>{{ displayValue(row.continu_tax_duty) }}</td>
               <td>{{ displayValue(row.continu_tax_vat) }}</td>
               <td>{{ displayValue(row.additional_tax_duty) }}</td>
               <td>{{ displayValue(row.additional_tax_vat) }}</td>
+              <td>{{ displayValue(row.enterprise_tax_date) }}</td>
               <td>{{ displayValue(row.tax_status) }}</td>
               <td>
+                <button
+                  class="btn small ghost"
+                  type="button"
+                  :disabled="row.tax_status === '已处置'"
+                  @click="openTaxDate(row)"
+                >
+                  {{ row.enterprise_tax_date ? '修改' : '录入' }}
+                </button>
                 <button
                   class="btn small"
                   type="button"
                   :disabled="row.tax_status === '已处置' || actionLoadingId === row.id"
-                  @click="handleProcess(row)"
+                  @click="openConfirm(row)"
                 >
                   {{ row.tax_status === '已处置' ? '已处置' : '处置' }}
                 </button>
@@ -200,6 +342,57 @@ onMounted(() => {
 
     <div v-if="toast.visible" class="toast" :class="`toast-${toast.type}`">
       {{ toast.message }}
+    </div>
+
+    <div v-if="taxDateVisible" class="modal-mask" role="dialog" aria-modal="true">
+      <div class="modal-card compact">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">企业缴税日期</p>
+            <h2>税收征管关键节点监控</h2>
+          </div>
+          <button class="btn ghost" type="button" @click="closeTaxDate">关闭</button>
+        </header>
+
+        <form class="modal-body tax-date-form" @submit.prevent="submitTaxDate">
+          <label class="tax-date-field">
+            企业缴税日期
+            <input v-model="taxDateValue" type="date" lang="en-CA" />
+          </label>
+          <div v-if="taxDateError" class="state error">{{ taxDateError }}</div>
+          <div class="modal-actions">
+            <button class="btn" type="submit" :disabled="taxDateLoading">
+              {{ taxDateLoading ? '保存中...' : '保存' }}
+            </button>
+            <button class="btn ghost" type="button" @click="closeTaxDate">取消</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div v-if="confirmVisible" class="modal-mask" role="dialog" aria-modal="true">
+      <div class="modal-card compact">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">处置确认</p>
+            <h2>税收征管关键节点监控</h2>
+          </div>
+          <button class="btn ghost" type="button" @click="closeConfirm">关闭</button>
+        </header>
+        <div class="modal-body">
+          <p>
+            确认将报关单号
+            <strong>{{ confirmRow?.decl_no || '-' }}</strong>
+            标记为已处置吗？
+          </p>
+          <div class="modal-actions">
+            <button class="btn" type="button" :disabled="confirmLoading" @click="confirmProcess">
+              {{ confirmLoading ? '处理中...' : '确认处置' }}
+            </button>
+            <button class="btn ghost" type="button" @click="closeConfirm">取消</button>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 </template>

@@ -121,6 +121,14 @@ body {
   margin-bottom: 16px;
 }
 
+.filters-top {
+  padding: 12px;
+  border: 1px dashed #e0d6c9;
+  border-radius: 14px;
+  margin-bottom: 12px;
+  background: #fbf9f5;
+}
+
 .filters {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -203,13 +211,16 @@ body {
 
 /* 表格 */
 .table-wrap {
-  overflow-x: auto;
+  max-height: 70vh;
+  overflow: auto;
 }
 
 .ledger-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 17px;
+  min-width: 1800px;
 }
 
 .ledger-table th,
@@ -218,6 +229,63 @@ body {
   padding: 14px 12px;
   text-align: center;
   white-space: nowrap;
+}
+
+.ledger-table thead th {
+  position: sticky;
+  top: 0;
+  background: #ffffff;
+  z-index: 3;
+}
+
+.ledger-table th.sticky,
+.ledger-table td.sticky {
+  position: sticky;
+  left: 0;
+  background: #ffffff;
+  z-index: 2;
+}
+
+.ledger-table th.sticky:first-child,
+.ledger-table td.sticky:first-child {
+  width: 64px;
+  min-width: 64px;
+}
+
+.ledger-table th.sticky + th.sticky,
+.ledger-table td.sticky + td.sticky {
+  width: 180px;
+  min-width: 180px;
+}
+
+.ledger-table th.sticky + th.sticky,
+.ledger-table td.sticky + td.sticky {
+  left: 64px;
+}
+
+.ledger-table th.sticky {
+  z-index: 4;
+}
+
+.ledger-table thead th.sticky {
+  z-index: 5;
+}
+
+.ledger-table th.col-text,
+.ledger-table td.col-text {
+  width: 240px;
+}
+
+.ledger-table td.col-text {
+  text-align: left;
+  word-break: break-word;
+}
+
+.ledger-table th.single-line,
+.ledger-table td.single-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ledger-table th {
@@ -300,6 +368,23 @@ body {
   overflow: auto;
 }
 
+.modal-card.compact {
+  width: min(520px, 100%);
+}
+
+.tax-date-form {
+  align-items: center;
+}
+
+.tax-date-field {
+  width: 100%;
+  max-width: 320px;
+}
+
+.tax-date-field input {
+  text-align: center;
+}
+
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -343,6 +428,11 @@ body {
   color: #1b1b1b;
 }
 
+.form-grid textarea.compact {
+  min-height: 56px;
+  line-height: 1.4;
+}
+
 .form-grid .full {
   grid-column: 1 / -1;
 }
@@ -375,6 +465,32 @@ body {
 .toast-error {
   border-color: #d19b90;
   color: #a63c2f;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.suffix-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(36px, 1fr));
+  gap: 6px;
+  align-items: center;
+}
+
+.suffix-item {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: #6b5a46;
 }
 
 @media (max-width: 768px) {
