@@ -164,6 +164,13 @@ body {
   flex-wrap: wrap;
 }
 
+.filter-actions-right {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
 .meta {
   display: flex;
   gap: 16px;
@@ -372,10 +379,6 @@ body {
   width: min(520px, 100%);
 }
 
-.tax-date-form {
-  align-items: center;
-}
-
 .tax-date-field {
   width: 100%;
   max-width: 320px;
@@ -383,6 +386,102 @@ body {
 
 .tax-date-field input {
   text-align: center;
+}
+
+.tax-date-field input.align-left {
+  text-align: left;
+}
+
+.tax-date-remark {
+  width: 100%;
+}
+
+.tax-date-remark textarea {
+  width: 100%;
+  border: 1px solid #dfd4c6;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: #fffdf9;
+  color: #1b1b1b;
+}
+
+.tax-date-remark input {
+  width: 100%;
+  border: 1px solid #dfd4c6;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: #fffdf9;
+  color: #1b1b1b;
+}
+
+.tax-entry {
+  border: 1px dashed #e0d6c9;
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 16px;
+  background: #fbf9f5;
+}
+
+.tax-entry-title {
+  font-size: 13px;
+  color: #7a6a55;
+  margin-bottom: 8px;
+  letter-spacing: 0.1em;
+}
+
+.modal-body.tax-entry-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.tax-entry-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: #7a6a55;
+}
+
+.tax-entry-form input {
+  border: 1px solid #dfd4c6;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: #fffdf9;
+  color: #1b1b1b;
+}
+
+.tax-entry-form input.num-input {
+  text-align: right;
+}
+
+.tax-entry-form input.align-left {
+  text-align: left;
+}
+
+.tax-date-remark input.num-input {
+  text-align: right;
+}
+
+.tax-entry-form textarea {
+  border: 1px solid #dfd4c6;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: #fffdf9;
+  color: #1b1b1b;
+}
+
+.tax-entry-form .full {
+  grid-column: 1 / -1;
+}
+
+.tax-entry-actions {
+  display: flex;
+  align-items: flex-end;
 }
 
 .modal-header {
@@ -428,6 +527,14 @@ body {
   color: #1b1b1b;
 }
 
+.num-input {
+  text-align: right;
+}
+
+.align-left {
+  text-align: left;
+}
+
 .form-grid textarea.compact {
   min-height: 56px;
   line-height: 1.4;
@@ -441,6 +548,12 @@ body {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
+}
+
+.modal-actions.align-right {
+  width: 100%;
+  justify-content: flex-end;
+  align-self: stretch;
 }
 
 /* 全局提示 */

@@ -61,12 +61,22 @@ export function updateTaxStatus(id, taxStatus) {
 }
 
 // 企业缴税日期更新
-export function updateEnterpriseTaxDate(id, enterpriseTaxDate) {
+export function updateEnterpriseTaxDate(id, enterpriseTaxDate, taxRemark, bondBalance) {
   const url = `${BASE_URL}/ledger/${id}/enterprise-tax-date`;
   return requestJson(url, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enterpriseTaxDate })
+    body: JSON.stringify({ enterpriseTaxDate, taxRemark, bondBalance })
+  });
+}
+
+// 税费岗单条录入
+export function createTaxDeskEntry(payload) {
+  const url = `${BASE_URL}/ledger/tax-desk`;
+  return requestJson(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
   });
 }
 
@@ -75,6 +85,7 @@ export function fetchTaxDeskList(params = {}) {
   const query = new URLSearchParams();
   if (params.page) query.set('page', String(params.page));
   if (params.pageSize) query.set('pageSize', String(params.pageSize));
+  if (params.declNo) query.set('declNo', params.declNo);
   const url = `${BASE_URL}/ledger/tax-desk?${query.toString()}`;
   return requestJson(url);
 }

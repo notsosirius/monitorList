@@ -216,9 +216,43 @@ class LedgerService {
     await ledgerDao.updateTaxStatus(id, status);
   }
 
-  // 更新企业缴税日期（独立字段更新，避免覆盖其他字段）
-  async updateEnterpriseTaxDate(id, enterpriseTaxDate) {
-    await ledgerDao.updateEnterpriseTaxDate(id, enterpriseTaxDate);
+  // 更新税费岗录入字段（独立字段更新，避免覆盖其他字段）
+  async updateTaxDeskInfo(id, data) {
+    await ledgerDao.updateTaxDeskInfo(id, data);
+  }
+
+  // 税费岗单条录入（直接生成含改单日期的记录）
+  async createTaxDeskEntry(data) {
+    let isValid = false;
+    if (data.final_invoice_date) {
+      // 有最晚发票日期时：校验改单日期 >= 最晚发票日期 且 >= 申报日期
+      isValid = this.validateAmendDate(
+        data.amend_date,
+        data.final_invoice_date,
+        data.declare_date
+      );
+    } else {
+      // 无最晚发票日期时：仅校验改单日期 >= 申报日期
+      const amendMs = this.toDateOnlyMs(data.amend_date);
+      const declareMs = this.toDateOnlyMs(data.declare_date);
+      isValid = amendMs !== null && declareMs !== null && amendMs >= declareMs;
+    }
+
+    if (!isValid) {
+      const message = data.final_invoice_date
+        ? '改单日期必须大于等于最晚发票日期且大于等于申报日期'
+        : '改单日期必须大于等于申报日期';
+      const error = new Error(message);
+      error.code = 'AMEND_DATE_INVALID';
+      throw error;
+    }
+
+    const payload = {
+      ...data,
+      tax_status: '未处置'
+    };
+
+    await ledgerDao.insertLedger(payload);
   }
 }
 

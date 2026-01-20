@@ -151,11 +151,18 @@ router.get('/ledger', async (req, res) => {
 // 税费岗列表（含分页）
 router.get('/ledger/tax-desk', async (req, res) => {
   try {
+    if (req.query.declNo && !isValidDeclNo(req.query.declNo)) {
+      return res.status(400).json({ message: '报关单号必须为 18 位数字' });
+    }
     const page = Math.max(parseInt(req.query.page || '1', 10), 1);
     const rawPageSize = parseInt(req.query.pageSize || '100', 10);
     const pageSize = rawPageSize > 100 ? 100 : rawPageSize;
 
-    const result = await ledgerService.listTaxDesk({ page, pageSize });
+    const result = await ledgerService.listTaxDesk({
+      page,
+      pageSize,
+      declNo: req.query.declNo || null
+    });
     res.json({
       page,
       pageSize,
@@ -164,6 +171,94 @@ router.get('/ledger/tax-desk', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: '查询失败' });
+  }
+});
+
+// 税费岗单条录入（仅包含必要字段）
+router.post('/ledger/tax-desk', async (req, res) => {
+  try {
+    const {
+      declNo,
+      goodsName,
+      declareDate,
+      finalInvoiceDate,
+      amendDate,
+      enterpriseTaxDate,
+      taxRemark,
+      bondBalance
+    } = req.body || {};
+
+    if (!declNo) {
+      return res.status(400).json({ message: '报关单号不能为空' });
+    }
+    if (!isValidDeclNo(declNo)) {
+      return res.status(400).json({ message: '报关单号必须为 18 位数字' });
+    }
+    if (!declareDate || !amendDate) {
+      return res.status(400).json({ message: '申报日期、改单日期不能为空' });
+    }
+
+    const normalizedDeclareDate = normalizeDate(declareDate);
+    if (normalizedDeclareDate?.error) {
+      return res.status(400).json({ message: '申报日期格式不合法' });
+    }
+    let normalizedFinalInvoiceDate = null;
+    if (finalInvoiceDate) {
+      const normalized = normalizeDate(finalInvoiceDate);
+      if (normalized?.error) {
+        return res.status(400).json({ message: '最晚发票日期格式不合法' });
+      }
+      normalizedFinalInvoiceDate = normalized;
+    }
+    const normalizedAmendDate = normalizeDate(amendDate);
+    if (normalizedAmendDate?.error) {
+      return res.status(400).json({ message: '改单日期格式不合法' });
+    }
+
+    let normalizedEnterpriseTaxDate = null;
+    if (enterpriseTaxDate) {
+      const normalized = normalizeDate(enterpriseTaxDate);
+      if (normalized?.error) {
+        return res.status(400).json({ message: '企业缴税日期格式不合法' });
+      }
+      normalizedEnterpriseTaxDate = normalized;
+    }
+
+    let normalizedTaxRemark = null;
+    if (taxRemark) {
+      const normalized = normalizeText(taxRemark, 1000);
+      if (normalized?.error) {
+        return res.status(400).json({ message: '税费岗备注过长' });
+      }
+      normalizedTaxRemark = normalized;
+    }
+
+    let normalizedBondBalance = null;
+    if (bondBalance !== undefined && bondBalance !== null && bondBalance !== '') {
+      const normalized = normalizeNumber(bondBalance);
+      if (normalized?.error) {
+        return res.status(400).json({ message: '保证金余额格式不合法' });
+      }
+      normalizedBondBalance = normalized;
+    }
+
+    await ledgerService.createTaxDeskEntry({
+      decl_no: declNo,
+      goods_name: goodsName,
+      declare_date: normalizedDeclareDate,
+      final_invoice_date: normalizedFinalInvoiceDate,
+      amend_date: normalizedAmendDate,
+      enterprise_tax_date: normalizedEnterpriseTaxDate,
+      tax_remark: normalizedTaxRemark,
+      bond_balance: normalizedBondBalance
+    });
+
+    return res.status(201).json({ message: '创建成功' });
+  } catch (error) {
+    if (error?.code === 'AMEND_DATE_INVALID') {
+      return res.status(400).json({ message: error.message });
+    }
+    return res.status(500).json({ message: '创建失败' });
   }
 });
 
@@ -211,6 +306,7 @@ router.post(
         '磋商日期': 'negotiation_date',
         '审价作业表日期': 'valuation_work_date',
         '改单日期（已审价）': 'amend_date',
+        '保证金余额': 'bond_balance',
         '延续性征税（关税）': 'continu_tax_duty',
         '延续性征税（增值税）': 'continu_tax_vat',
         '审价补税（关税）': 'additional_tax_duty',
@@ -270,7 +366,8 @@ router.post(
             key === 'continu_tax_duty' ||
             key === 'continu_tax_vat' ||
             key === 'additional_tax_duty' ||
-            key === 'additional_tax_vat'
+            key === 'additional_tax_vat' ||
+            key === 'bond_balance'
           ) {
             const normalized = normalizeNumber(value);
             if (normalized?.error) {
@@ -570,21 +667,55 @@ router.patch('/ledger/:id/tax-status', async (req, res) => {
   }
 });
 
-// 更新企业缴税日期（独立字段，避免覆盖其他字段）
+// 更新税费岗录入字段（独立字段，避免覆盖其他字段）
 router.patch('/ledger/:id/enterprise-tax-date', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const enterpriseTaxDateRaw = req.body?.enterpriseTaxDate;
-    if (enterpriseTaxDateRaw === undefined) {
-      return res.status(400).json({ message: '企业缴税日期不能为空' });
+    const taxRemarkRaw = req.body?.taxRemark;
+    const bondBalanceRaw = req.body?.bondBalance;
+
+    let enterpriseTaxDate;
+    if (enterpriseTaxDateRaw !== undefined) {
+      const normalized = normalizeDate(enterpriseTaxDateRaw);
+      if (normalized?.error) {
+        return res.status(400).json({ message: '企业缴税日期格式不合法' });
+      }
+      enterpriseTaxDate = normalized || null;
     }
 
-    const normalized = normalizeDate(enterpriseTaxDateRaw);
-    if (normalized?.error) {
-      return res.status(400).json({ message: '企业缴税日期格式不合法' });
+    let taxRemark;
+    if (taxRemarkRaw !== undefined) {
+      const normalizedRemark = normalizeText(taxRemarkRaw, 1000);
+      if (normalizedRemark?.error) {
+        return res.status(400).json({ message: '税费岗备注过长' });
+      }
+      taxRemark = normalizedRemark || null;
     }
 
-    await ledgerService.updateEnterpriseTaxDate(id, normalized);
+    let bondBalance;
+    if (bondBalanceRaw !== undefined) {
+      const normalizedBalance = normalizeNumber(bondBalanceRaw);
+      if (normalizedBalance?.error) {
+        return res.status(400).json({ message: '保证金余额格式不合法' });
+      }
+      bondBalance = normalizedBalance;
+    }
+
+    if (
+      enterpriseTaxDateRaw === undefined &&
+      taxRemarkRaw === undefined &&
+      bondBalanceRaw === undefined
+    ) {
+      return res.status(400).json({ message: '企业缴税日期、备注或保证金余额不能为空' });
+    }
+
+    const payload = {};
+    if (enterpriseTaxDateRaw !== undefined) payload.enterprise_tax_date = enterpriseTaxDate;
+    if (taxRemarkRaw !== undefined) payload.tax_remark = taxRemark;
+    if (bondBalanceRaw !== undefined) payload.bond_balance = bondBalance;
+
+    await ledgerService.updateTaxDeskInfo(id, payload);
     return res.json({ message: '更新成功' });
   } catch (error) {
     return res.status(500).json({ message: '更新失败' });

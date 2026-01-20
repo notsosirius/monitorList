@@ -25,3 +25,10 @@
 ## Run
 - Backend: node server.js
 - Frontend: cd web && npm run dev
+
+## Plugin Plan (Page A)
+- Flow: inject button -> read 3 fields from JS globals -> POST to backend -> store in DB.
+- Backend endpoint: POST http://localhost:3838/api/ledger
+- Payload fields: declNo (18-digit), goodsName, declareDate (YYYY-MM-DD).
+- Injection: Chrome extension content script; no DOM read needed if JS globals exist.
+- Template code uses JS_PATH_DECL_NO / JS_PATH_GOODS_NAME / JS_PATH_DECLARE_DATE placeholders.

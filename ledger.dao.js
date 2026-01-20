@@ -13,11 +13,11 @@ class LedgerDao {
         decl_no, goods_name, declare_date,
         final_invoice_date, latest_settle_date, doc_receipt_date,
         info_exchange, inquiry_start_date, challenge_date, negotiation_date,
-        valuation_work_date, amend_date,
+        valuation_work_date, amend_date, enterprise_tax_date, tax_remark, bond_balance,
         continu_tax_duty, continu_tax_vat, additional_tax_duty, additional_tax_vat,
         remark, tax_status, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `;
 
     const params = [
@@ -33,6 +33,9 @@ class LedgerDao {
       data.negotiation_date || null,
       data.valuation_work_date || null,
       data.amend_date || null,
+      data.enterprise_tax_date || null,
+      data.tax_remark || null,
+      data.bond_balance || null,
       data.continu_tax_duty || null,
       data.continu_tax_vat || null,
       data.additional_tax_duty || null,
@@ -162,15 +165,38 @@ class LedgerDao {
     return db.execute(sql, params);
   }
 
-  // 仅更新企业缴税日期（避免覆盖处理页的其他字段）
-  async updateEnterpriseTaxDate(id, enterpriseTaxDate) {
+  // 仅更新税费岗录入字段（避免覆盖处理页的其他字段）
+  async updateTaxDeskInfo(id, data) {
+    const sets = [];
+    const params = [];
+
+    if (Object.prototype.hasOwnProperty.call(data, 'enterprise_tax_date')) {
+      sets.push('enterprise_tax_date = ?');
+      params.push(data.enterprise_tax_date || null);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, 'tax_remark')) {
+      sets.push('tax_remark = ?');
+      params.push(data.tax_remark || null);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, 'bond_balance')) {
+      sets.push('bond_balance = ?');
+      params.push(data.bond_balance || null);
+    }
+
+    if (sets.length === 0) {
+      return { rowsAffected: 0 };
+    }
+
     const sql = `
       UPDATE tax_ledger
-      SET enterprise_tax_date = ?,
+      SET ${sets.join(', ')},
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `;
-    return db.execute(sql, [enterpriseTaxDate, id]);
+    params.push(id);
+    return db.execute(sql, params);
   }
 
   // 查询台账列表（过滤 + 排序 + 分页）
@@ -241,7 +267,12 @@ class LedgerDao {
   // 税费岗列表（仅展示改单日期非空记录）
   async listTaxDesk(filters) {
     const params = [];
-    const where = 'WHERE amend_date IS NOT NULL';
+    let where = 'WHERE amend_date IS NOT NULL';
+    if (filters.declNo) {
+      // 报关单号精确匹配
+      where += ' AND decl_no = ?';
+      params.push(filters.declNo);
+    }
     const orderBy = `
       ORDER BY
         CASE WHEN tax_status = '已处置' THEN 1 ELSE 0 END ASC,

@@ -386,15 +386,16 @@ onMounted(() => {
             pattern="[0-9]{18}"
             maxlength="18"
             placeholder="精确匹配"
+            @keydown.enter.prevent="handleSearch"
           />
         </div>
         <div class="filter-item">
           <label>改单日期起</label>
-          <input v-model="amendDateFrom" type="date" lang="en-CA" />
+          <input v-model="amendDateFrom" type="date" lang="en-CA" @keydown.enter.prevent="handleSearch" />
         </div>
         <div class="filter-item">
           <label>改单日期止</label>
-          <input v-model="amendDateTo" type="date" lang="en-CA" />
+          <input v-model="amendDateTo" type="date" lang="en-CA" @keydown.enter.prevent="handleSearch" />
         </div>
         <div class="filter-actions">
           <button class="btn" type="button" @click="handleSearch">查询</button>
