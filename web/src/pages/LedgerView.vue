@@ -19,6 +19,7 @@ const errorMessage = ref('');
 // 详情字段定义，统一用于渲染
 const fields = [
   { key: 'decl_no', label: '报关单号' },
+  { key: 'tax_no', label: '税号' },
   { key: 'goods_name', label: '商品名称' },
   { key: 'declare_date', label: '申报日期' },
   { key: 'final_invoice_date', label: '最终发票日期' },
@@ -39,6 +40,22 @@ const fields = [
   { key: 'additional_tax_vat', label: '审价补税（增值税）' },
   { key: 'remark', label: '备注' },
   { key: 'tax_status', label: '税费岗状态' }
+];
+
+// 将属性字段插入到“资料交互情况”之前展示
+const infoExchangeIndex = fields.findIndex((field) => field.key === 'info_exchange');
+const fieldsBeforeAttribute = infoExchangeIndex === -1 ? fields : fields.slice(0, infoExchangeIndex);
+const fieldsAfterAttribute = infoExchangeIndex === -1 ? [] : fields.slice(infoExchangeIndex);
+
+const attributeOptions = [
+  '公式定价',
+  '特殊关系',
+  '特许权使用费',
+  '事中验估',
+  '事后验估',
+  '虚拟混矿',
+  '报税内销有内销价',
+  '报税内销无内销价'
 ];
 
 // 详情加载逻辑
@@ -89,6 +106,14 @@ function displayValue(value) {
   if (dateText) return dateText;
   return value;
 }
+
+function getAttributeFlags(recordValue) {
+  if (!recordValue) return [];
+  return String(recordValue)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
 </script>
 
 <template>
@@ -107,10 +132,31 @@ function displayValue(value) {
       <div v-if="loading" class="state">加载中...</div>
       <div v-else-if="errorMessage" class="state error">{{ errorMessage }}</div>
       <div v-else-if="!record" class="state">暂无数据</div>
-      <div v-else class="detail-grid">
-        <div v-for="field in fields" :key="field.key" class="detail-row">
-          <div class="detail-label">{{ field.label }}</div>
-          <div class="detail-value">{{ displayValue(record[field.key]) }}</div>
+      <div v-else>
+        <div class="detail-grid">
+          <div v-for="field in fieldsBeforeAttribute" :key="field.key" class="detail-row">
+            <div class="detail-label">{{ field.label }}</div>
+            <div class="detail-value">{{ displayValue(record[field.key]) }}</div>
+          </div>
+        </div>
+        <div class="attr-group">
+          <div class="attr-title">属性字段</div>
+          <div class="attr-options">
+            <label v-for="option in attributeOptions" :key="option" class="attr-item">
+              <input
+                type="checkbox"
+                disabled
+                :checked="getAttributeFlags(record.attribute_flags).includes(option)"
+              />
+              <span>{{ option }}</span>
+            </label>
+          </div>
+        </div>
+        <div class="detail-grid">
+          <div v-for="field in fieldsAfterAttribute" :key="field.key" class="detail-row">
+            <div class="detail-label">{{ field.label }}</div>
+            <div class="detail-value">{{ displayValue(record[field.key]) }}</div>
+          </div>
         </div>
       </div>
     </div>

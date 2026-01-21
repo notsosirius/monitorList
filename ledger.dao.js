@@ -10,23 +10,29 @@ class LedgerDao {
   async insertLedger(data) {
     const sql = `
       INSERT INTO tax_ledger (
-        decl_no, goods_name, declare_date,
+        decl_no, tax_no, goods_name, declare_date,
         final_invoice_date, latest_settle_date, doc_receipt_date,
+        attribute_flags,
         info_exchange, inquiry_start_date, challenge_date, negotiation_date,
         valuation_work_date, amend_date, tax_start_date, tax_remark, bond_balance,
+        extra_bond, receipt_received, broker_name, notice_sent,
         continu_tax_duty, continu_tax_vat, additional_tax_duty, additional_tax_vat,
         remark, tax_status, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `;
 
     const params = [
       data.decl_no,
+      // tax_no: 税号
+      data.tax_no || null,
       data.goods_name || null,
       data.declare_date || null,
       data.final_invoice_date || null,
       data.latest_settle_date || null,
       data.doc_receipt_date || null,
+      // attribute_flags: 属性字段（逗号分隔）
+      data.attribute_flags || null,
       data.info_exchange || null,
       data.inquiry_start_date || null,
       data.challenge_date || null,
@@ -36,7 +42,16 @@ class LedgerDao {
       // tax_start_date: 起算日期
       data.tax_start_date || null,
       data.tax_remark || null,
+      // bond_balance: 保证金余额
       data.bond_balance || null,
+      // extra_bond: 补保证金
+      data.extra_bond || null,
+      // receipt_received: 是否收到收据（是/否）
+      data.receipt_received || null,
+      // broker_name: 报关行
+      data.broker_name || null,
+      // notice_sent: 是否发送通知书（是/否）
+      data.notice_sent || null,
       data.continu_tax_duty || null,
       data.continu_tax_vat || null,
       data.additional_tax_duty || null,
@@ -81,6 +96,7 @@ class LedgerDao {
       SET final_invoice_date = ?,
           latest_settle_date = ?,
           doc_receipt_date = ?,
+          attribute_flags = ?,
           info_exchange = ?,
           inquiry_start_date = ?,
           challenge_date = ?,
@@ -101,6 +117,7 @@ class LedgerDao {
       data.final_invoice_date || null,
       data.latest_settle_date || null,
       data.doc_receipt_date || null,
+      data.attribute_flags || null,
       data.info_exchange || null,
       data.inquiry_start_date || null,
       data.challenge_date || null,
@@ -184,6 +201,30 @@ class LedgerDao {
     if (Object.prototype.hasOwnProperty.call(data, 'bond_balance')) {
       sets.push('bond_balance = ?');
       params.push(data.bond_balance || null);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, 'extra_bond')) {
+      // extra_bond: 补保证金
+      sets.push('extra_bond = ?');
+      params.push(data.extra_bond || null);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, 'receipt_received')) {
+      // receipt_received: 是否收到收据（是/否）
+      sets.push('receipt_received = ?');
+      params.push(data.receipt_received || null);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, 'broker_name')) {
+      // broker_name: 报关行
+      sets.push('broker_name = ?');
+      params.push(data.broker_name || null);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, 'notice_sent')) {
+      // notice_sent: 是否发送通知书（是/否）
+      sets.push('notice_sent = ?');
+      params.push(data.notice_sent || null);
     }
 
     if (sets.length === 0) {
@@ -346,10 +387,12 @@ class LedgerDao {
     const sql = `
       UPDATE tax_ledger
       SET tax_status = ?,
+          -- tax_processed_date: 处置日期（用于锁定工作日数）
+          tax_processed_date = CASE WHEN ? = '已处置' THEN CURRENT_DATE ELSE NULL END,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `;
-    return db.execute(sql, [status, id]);
+    return db.execute(sql, [status, status, id]);
   }
 
   // 导出列表（过滤 + 排序，不分页）

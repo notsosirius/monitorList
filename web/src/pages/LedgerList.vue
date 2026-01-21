@@ -31,6 +31,7 @@ const editForm = ref({
   finalInvoiceDate: '',
   latestSettleDate: '',
   docReceiptDate: '',
+  attributeFlags: [],
   infoExchange: '',
   inquiryStartDate: '',
   challengeDate: '',
@@ -43,6 +44,17 @@ const editForm = ref({
   additionalTaxVat: '',
   remark: ''
 });
+
+const attributeOptions = [
+  '公式定价',
+  '特殊关系',
+  '特许权使用费',
+  '事中验估',
+  '事后验估',
+  '虚拟混矿',
+  '报税内销有内销价',
+  '报税内销无内销价'
+];
 
 // 导出状态：防止重复点击
 const exporting = ref(false);
@@ -150,10 +162,17 @@ async function openEdit(id) {
   viewMode.value = false;
   try {
     const record = await fetchLedgerById(id);
+    const attributeFlags = record.attribute_flags
+      ? String(record.attribute_flags)
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : [];
     editForm.value = {
       finalInvoiceDate: toDateInput(record.final_invoice_date),
       latestSettleDate: toDateInput(record.latest_settle_date),
       docReceiptDate: toDateInput(record.doc_receipt_date),
+      attributeFlags,
       infoExchange: record.info_exchange || '',
       inquiryStartDate: toDateInput(record.inquiry_start_date),
       challengeDate: toDateInput(record.challenge_date),
@@ -182,10 +201,17 @@ async function openView(id) {
   viewMode.value = true;
   try {
     const record = await fetchLedgerById(id);
+    const attributeFlags = record.attribute_flags
+      ? String(record.attribute_flags)
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : [];
     editForm.value = {
       finalInvoiceDate: toDateInput(record.final_invoice_date),
       latestSettleDate: toDateInput(record.latest_settle_date),
       docReceiptDate: toDateInput(record.doc_receipt_date),
+      attributeFlags,
       infoExchange: record.info_exchange || '',
       inquiryStartDate: toDateInput(record.inquiry_start_date),
       challengeDate: toDateInput(record.challenge_date),
@@ -448,6 +474,7 @@ onMounted(() => {
             <tr>
               <th class="sticky">紧急</th>
               <th class="sticky">报关单号</th>
+              <th>税号</th>
               <th>商品名称</th>
               <th>申报日期</th>
               <th>最终发票日期</th>
@@ -480,6 +507,7 @@ onMounted(() => {
                   {{ displayValue(row.decl_no) }}
                 </button>
               </td>
+              <td>{{ displayValue(row.tax_no) }}</td>
               <td>{{ displayValue(row.goods_name) }}</td>
               <td>{{ displayValue(row.declare_date) }}</td>
               <td>{{ displayValue(row.final_invoice_date) }}</td>
@@ -516,7 +544,6 @@ onMounted(() => {
             <p class="eyebrow">{{ viewMode ? '查看' : '处理' }}</p>
             <h2>税收征管关键节点监控</h2>
           </div>
-          <button class="btn ghost" type="button" @click="closeEdit">关闭</button>
         </header>
 
         <div v-if="editLoading" class="state">加载中...</div>
@@ -571,6 +598,20 @@ onMounted(() => {
               审价补税（增值税）
               <input v-model="editForm.additionalTaxVat" type="number" step="0.01" :disabled="viewMode" />
             </label>
+            <div class="attr-group full">
+              <div class="attr-title">属性字段</div>
+              <div class="attr-options">
+                <label v-for="option in attributeOptions" :key="option" class="attr-item">
+                  <input
+                    v-model="editForm.attributeFlags"
+                    type="checkbox"
+                    :value="option"
+                    :disabled="viewMode"
+                  />
+                  <span>{{ option }}</span>
+                </label>
+              </div>
+            </div>
             <label class="full">
               资料交互情况
               <textarea

@@ -201,6 +201,7 @@ FROM TAX_LEDGER_TMP;
 - finalInvoiceDate
 - latestSettleDate
 - docReceiptDate
+- attributeFlags
 - infoExchange
 - inquiryStartDate
 - challengeDate
@@ -216,6 +217,7 @@ FROM TAX_LEDGER_TMP;
 说明:
 - 改单日期（amendDate）必须 >= 最晚发票日期 且 >= 申报日期
 - 改单日期非空时，税费岗状态自动置为“未处置”
+- attributeFlags 为可多选属性字段（逗号分隔）
 
 示例:
 ```bash
@@ -340,6 +342,9 @@ CREATE TABLE tax_ledger (
   valuation_work_date DATE,
   amend_date DATE,
   tax_start_date DATE,
+  attribute_flags VARCHAR(200),
+  tax_remark VARCHAR(1000),
+  bond_balance DECIMAL(18,2),
   continu_tax_duty DECIMAL(18,2),
   continu_tax_vat DECIMAL(18,2),
   additional_tax_duty DECIMAL(18,2),

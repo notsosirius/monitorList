@@ -38,6 +38,10 @@ const taxDateId = ref(null);
 const taxDateValue = ref('');
 const taxRemarkValue = ref('');
 const bondBalanceValue = ref('');
+const extraBondValue = ref('');
+const receiptReceivedValue = ref('');
+const brokerNameValue = ref('');
+const noticeSentValue = ref('');
 
 // 税费岗单条录入弹窗状态
 const entryVisible = ref(false);
@@ -48,7 +52,11 @@ const entryForm = ref({
   amendDate: '',
   taxStartDate: '',
   taxRemark: '',
-  bondBalance: ''
+  bondBalance: '',
+  extraBond: '',
+  receiptReceived: '',
+  brokerName: '',
+  noticeSent: ''
 });
 const entryLoading = ref(false);
 const entryError = ref('');
@@ -80,7 +88,8 @@ function getTaxDeskUrgency(row) {
   if (!row) return 'yellow';
   if (row.tax_status === '已处置') return 'green';
   if (!row.tax_start_date) return 'yellow';
-  const businessDays = calcBusinessDaysDiff(row.tax_start_date, new Date());
+  const businessDays =
+    row.workday_since_start ?? calcBusinessDaysDiff(row.tax_start_date, new Date());
   if (businessDays <= 1) return 'yellow';
   if (businessDays <= 3) return 'orange';
   return 'red';
@@ -194,6 +203,11 @@ function displayValue(value) {
   return value;
 }
 
+function displayWorkdayCount(count) {
+  if (count === null || count === undefined) return '-';
+  return String(count);
+}
+
 // 将日期转为输入框需要的 YYYY-MM-DD
 function toDateInput(value) {
   if (!value) return '';
@@ -259,6 +273,10 @@ function openTaxDate(row) {
   taxDateValue.value = toDateInput(row.tax_start_date);
   taxRemarkValue.value = row.tax_remark || '';
   bondBalanceValue.value = row.bond_balance ?? '';
+  extraBondValue.value = row.extra_bond ?? '';
+  receiptReceivedValue.value = row.receipt_received || '';
+  brokerNameValue.value = row.broker_name || '';
+  noticeSentValue.value = row.notice_sent || '';
 }
 
 function closeTaxDate() {
@@ -268,6 +286,10 @@ function closeTaxDate() {
   taxDateValue.value = '';
   taxRemarkValue.value = '';
   bondBalanceValue.value = '';
+  extraBondValue.value = '';
+  receiptReceivedValue.value = '';
+  brokerNameValue.value = '';
+  noticeSentValue.value = '';
 }
 
 async function submitTaxDate() {
@@ -279,7 +301,11 @@ async function submitTaxDate() {
       taxDateId.value,
       taxDateValue.value || null,
       taxRemarkValue.value || null,
-      bondBalanceValue.value === '' ? null : bondBalanceValue.value
+      bondBalanceValue.value === '' ? null : bondBalanceValue.value,
+      extraBondValue.value === '' ? null : extraBondValue.value,
+      receiptReceivedValue.value || null,
+      brokerNameValue.value || null,
+      noticeSentValue.value || null
     );
     await loadList();
     showToast('起算日期已更新', 'success');
@@ -313,7 +339,11 @@ async function submitEntry() {
       amendDate: entryForm.value.amendDate,
       taxStartDate: entryForm.value.taxStartDate || undefined,
       taxRemark: entryForm.value.taxRemark || undefined,
-      bondBalance: entryForm.value.bondBalance === '' ? undefined : entryForm.value.bondBalance
+      bondBalance: entryForm.value.bondBalance === '' ? undefined : entryForm.value.bondBalance,
+      extraBond: entryForm.value.extraBond === '' ? undefined : entryForm.value.extraBond,
+      receiptReceived: entryForm.value.receiptReceived || undefined,
+      brokerName: entryForm.value.brokerName || undefined,
+      noticeSent: entryForm.value.noticeSent || undefined
     });
     entryForm.value = {
       declNo: '',
@@ -322,7 +352,11 @@ async function submitEntry() {
       amendDate: '',
       taxStartDate: '',
       taxRemark: '',
-      bondBalance: ''
+      bondBalance: '',
+      extraBond: '',
+      receiptReceived: '',
+      brokerName: '',
+      noticeSent: ''
     };
     await loadList();
     showToast('录入成功', 'success');
@@ -493,10 +527,14 @@ onMounted(() => {
               <th class="sticky">报关单号</th>
               <th>商品名称</th>
               <th>改单日期</th>
+              <th>补保证金</th>
               <th>保证金余额</th>
-              <th class="col-text single-line">税费岗备注</th>
+              <th>是否收到收据</th>
+              <th>报关行</th>
+              <th>是否发送通知书</th>
               <th>起算日期</th>
               <th>是否超5个工作日</th>
+              <th class="col-text single-line">税费岗备注</th>
               <th>税费岗状态</th>
               <th>处置</th>
             </tr>
@@ -509,10 +547,14 @@ onMounted(() => {
               <td class="sticky">{{ displayValue(row.decl_no) }}</td>
               <td>{{ displayValue(row.goods_name) }}</td>
               <td>{{ displayValue(row.amend_date) }}</td>
+              <td>{{ displayValue(row.extra_bond) }}</td>
               <td>{{ displayValue(row.bond_balance) }}</td>
-              <td class="col-text single-line">{{ displayValue(row.tax_remark) }}</td>
+              <td>{{ displayValue(row.receipt_received) }}</td>
+              <td>{{ displayValue(row.broker_name) }}</td>
+              <td>{{ displayValue(row.notice_sent) }}</td>
               <td>{{ displayValue(row.tax_start_date) }}</td>
-              <td>{{ displayValue(row.workday_since_start) }}</td>
+              <td>{{ displayWorkdayCount(row.workday_since_start) }}</td>
+              <td class="col-text single-line">{{ displayValue(row.tax_remark) }}</td>
               <td>{{ displayValue(row.tax_status) }}</td>
               <td>
                 <button
@@ -551,7 +593,6 @@ onMounted(() => {
             <p class="eyebrow">税费岗录入</p>
             <h2>税收征管关键节点监控</h2>
           </div>
-          <button class="btn ghost" type="button" @click="closeEntry">关闭</button>
         </header>
         <form class="modal-body" @submit.prevent="submitEntry">
           <div class="form-grid">
@@ -583,8 +624,32 @@ onMounted(() => {
               <input v-model="entryForm.taxStartDate" type="date" lang="en-CA" class="align-left" />
             </label>
             <label>
+              补保证金
+              <input v-model="entryForm.extraBond" type="number" step="0.01" placeholder="可选" class="num-input" />
+            </label>
+            <label>
               保证金余额
               <input v-model="entryForm.bondBalance" type="number" step="0.01" placeholder="可选" class="num-input" />
+            </label>
+            <label>
+              是否收到收据
+              <select v-model="entryForm.receiptReceived" class="select-input">
+                <option value="">可选</option>
+                <option value="是">是</option>
+                <option value="否">否</option>
+              </select>
+            </label>
+            <label>
+              报关行
+              <input v-model.trim="entryForm.brokerName" type="text" placeholder="可选" />
+            </label>
+            <label>
+              是否发送通知书
+              <select v-model="entryForm.noticeSent" class="select-input">
+                <option value="">可选</option>
+                <option value="是">是</option>
+                <option value="否">否</option>
+              </select>
             </label>
             <label class="full">
               税费岗备注
@@ -606,10 +671,8 @@ onMounted(() => {
       <div class="modal-card compact">
         <header class="modal-header">
           <div>
-            <p class="eyebrow">起算日期</p>
             <h2>税收征管关键节点监控</h2>
           </div>
-          <button class="btn ghost" type="button" @click="closeTaxDate">关闭</button>
         </header>
 
         <form class="modal-body" @submit.prevent="submitTaxDate">
@@ -619,8 +682,32 @@ onMounted(() => {
               <input v-model="taxDateValue" type="date" lang="en-CA" class="align-left" />
             </label>
             <label>
+              补保证金
+              <input v-model="extraBondValue" type="number" step="0.01" placeholder="可选" class="num-input" />
+            </label>
+            <label>
               保证金余额
               <input v-model="bondBalanceValue" type="number" step="0.01" placeholder="可选" class="num-input" />
+            </label>
+            <label>
+              是否收到收据
+              <select v-model="receiptReceivedValue" class="select-input">
+                <option value="">可选</option>
+                <option value="是">是</option>
+                <option value="否">否</option>
+              </select>
+            </label>
+            <label>
+              报关行
+              <input v-model.trim="brokerNameValue" type="text" placeholder="可选" />
+            </label>
+            <label>
+              是否发送通知书
+              <select v-model="noticeSentValue" class="select-input">
+                <option value="">可选</option>
+                <option value="是">是</option>
+                <option value="否">否</option>
+              </select>
             </label>
             <label class="full">
               税费岗备注
@@ -645,7 +732,6 @@ onMounted(() => {
             <p class="eyebrow">处置确认</p>
             <h2>税收征管关键节点监控</h2>
           </div>
-          <button class="btn ghost" type="button" @click="closeConfirm">关闭</button>
         </header>
         <div class="modal-body">
           <p>

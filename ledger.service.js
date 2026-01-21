@@ -161,16 +161,22 @@ class LedgerService {
   async listTaxDesk(filters) {
     const { items } = await ledgerDao.listTaxDeskRaw(filters);
 
-    // 计算起算后工作日数（用于展示）
+    // 计算起算后工作日数（已处置时用处置日期锁定）
     const today = new Date();
     const computed = await Promise.all(
       items.map(async (item) => {
+        // tax_processed_date: 税费岗处置日期（处置后工作日数固定）
+        const baseDate =
+          item.tax_status === '已处置'
+            ? item.tax_processed_date || item.updated_at || today
+            : today;
         const workdays = item.tax_start_date
-          ? await this.calcBusinessDaysDiffWithCalendar(item.tax_start_date, today)
+          ? await this.calcBusinessDaysDiffWithCalendar(item.tax_start_date, baseDate)
           : null;
         return {
           ...item,
-          workday_since_start: workdays
+          workday_since_start: workdays,
+          over_5_workdays: workdays !== null ? workdays > 5 : null
         };
       })
     );

@@ -61,12 +61,29 @@ export function updateTaxStatus(id, taxStatus) {
 }
 
 // 起算日期更新
-export function updateTaxStartDate(id, taxStartDate, taxRemark, bondBalance) {
+export function updateTaxStartDate(
+  id,
+  taxStartDate,
+  taxRemark,
+  bondBalance,
+  extraBond,
+  receiptReceived,
+  brokerName,
+  noticeSent
+) {
   const url = `${BASE_URL}/ledger/${id}/tax-start-date`;
   return requestJson(url, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ taxStartDate, taxRemark, bondBalance })
+    body: JSON.stringify({
+      taxStartDate,
+      taxRemark,
+      bondBalance,
+      extraBond,
+      receiptReceived,
+      brokerName,
+      noticeSent
+    })
   });
 }
 

@@ -9,6 +9,34 @@ const ledgerService = require('./ledger.service');
 
 const router = express.Router();
 
+// 属性字段规范化：仅允许枚举值，输出逗号分隔字符串
+function normalizeAttributeFlags(value, allowed) {
+  if (value === undefined || value === null || value === '') return { value: null };
+  const raw = Array.isArray(value)
+    ? value
+    : String(value || '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+  const normalized = Array.from(new Set(raw));
+  const invalid = normalized.filter((item) => !allowed.includes(item));
+  if (invalid.length) return { error: '属性字段包含非法值' };
+  return { value: normalized.length ? normalized.join(',') : null };
+}
+
+// 属性字段枚举（前端多选，落库为逗号分隔）
+const ATTRIBUTE_OPTIONS = [
+  '公式定价',
+  '特殊关系',
+  '特许权使用费',
+  '事中验估',
+  '事后验估',
+  '虚拟混矿',
+  '报税内销有内销价',
+  '报税内销无内销价',
+];
+
+
 // 报关单号校验：仅允许 18 位数字
 function isValidDeclNo(value) {
   return typeof value === 'string' && /^\d{18}$/.test(value);
@@ -36,6 +64,16 @@ function normalizeNumber(value) {
     return { error: '数值格式不合法' };
   }
   return num;
+}
+
+// 布尔字段规范化：统一输出“是/否”，空值返回 null（receipt_received/notice_sent）
+function normalizeYesNo(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const text = String(value).trim();
+  if (['是', '否'].includes(text)) return text;
+  if (['1', 'true', 'TRUE'].includes(text)) return '是';
+  if (['0', 'false', 'FALSE'].includes(text)) return '否';
+  return { error: '仅允许填写“是/否”' };
 }
 
 function normalizeWorkdayFlag(value) {
@@ -83,6 +121,7 @@ router.post('/ledger', async (req, res) => {
       finalInvoiceDate,
       latestSettleDate,
       docReceiptDate,
+      attributeFlags,
       confirmDuplicate
     } = req.body;
 
@@ -93,6 +132,12 @@ router.post('/ledger', async (req, res) => {
       return res.status(400).json({ message: '报关单号必须为 18 位数字' });
     }
 
+    const { value: normalizedAttributeFlags, error: attributeError } =
+      normalizeAttributeFlags(attributeFlags, ATTRIBUTE_OPTIONS);
+    if (attributeError) {
+      return res.status(400).json({ message: attributeError });
+    }
+
     const result = await ledgerService.createLedger(
       {
         decl_no: declNo,
@@ -100,7 +145,8 @@ router.post('/ledger', async (req, res) => {
         declare_date: declareDate,
         final_invoice_date: finalInvoiceDate,
         latest_settle_date: latestSettleDate,
-        doc_receipt_date: docReceiptDate
+        doc_receipt_date: docReceiptDate,
+        attribute_flags: normalizedAttributeFlags
       },
       Boolean(confirmDuplicate)
     );
@@ -196,12 +242,17 @@ router.post('/ledger/tax-desk', async (req, res) => {
     const {
       declNo,
       goodsName,
+      taxNo,
       declareDate,
       finalInvoiceDate,
       amendDate,
       taxStartDate,
       taxRemark,
-      bondBalance
+      bondBalance,
+      extraBond,
+      receiptReceived,
+      brokerName,
+      noticeSent
     } = req.body || {};
 
     if (!declNo) {
@@ -258,15 +309,72 @@ router.post('/ledger/tax-desk', async (req, res) => {
       normalizedBondBalance = normalized;
     }
 
+    let normalizedExtraBond = null;
+    if (extraBond !== undefined && extraBond !== null && extraBond !== '') {
+      const normalized = normalizeNumber(extraBond);
+      if (normalized?.error) {
+        return res.status(400).json({ message: '补保证金格式不合法' });
+      }
+      normalizedExtraBond = normalized;
+    }
+
+    let normalizedReceiptReceived = null;
+    if (receiptReceived !== undefined) {
+      const normalized = normalizeYesNo(receiptReceived);
+      if (normalized?.error) {
+        return res.status(400).json({ message: '是否收到收据仅允许为“是/否”' });
+      }
+      normalizedReceiptReceived = normalized;
+    }
+
+    let normalizedNoticeSent = null;
+    if (noticeSent !== undefined) {
+      const normalized = normalizeYesNo(noticeSent);
+      if (normalized?.error) {
+        return res.status(400).json({ message: '是否发送通知书仅允许为“是/否”' });
+      }
+      normalizedNoticeSent = normalized;
+    }
+
+    // tax_no: 税号
+    let normalizedTaxNo = null;
+    if (taxNo) {
+      const normalized = normalizeText(taxNo, 50);
+      if (normalized?.error) {
+        return res.status(400).json({ message: '税号长度超限' });
+      }
+      normalizedTaxNo = normalized;
+    }
+
+    // broker_name: 报关行
+    let normalizedBrokerName = null;
+    if (brokerName) {
+      const normalized = normalizeText(brokerName, 100);
+      if (normalized?.error) {
+        return res.status(400).json({ message: '报关行名称过长' });
+      }
+      normalizedBrokerName = normalized;
+    }
+
     await ledgerService.createTaxDeskEntry({
       decl_no: declNo,
+      tax_no: normalizedTaxNo,
       goods_name: goodsName,
       declare_date: normalizedDeclareDate,
       final_invoice_date: normalizedFinalInvoiceDate,
       amend_date: normalizedAmendDate,
       tax_start_date: normalizedTaxStartDate,
       tax_remark: normalizedTaxRemark,
-      bond_balance: normalizedBondBalance
+      // bond_balance: 保证金余额
+      bond_balance: normalizedBondBalance,
+      // extra_bond: 补保证金
+      extra_bond: normalizedExtraBond,
+      // receipt_received: 是否收到收据（是/否）
+      receipt_received: normalizedReceiptReceived,
+      // broker_name: 报关行
+      broker_name: normalizedBrokerName,
+      // notice_sent: 是否发送通知书（是/否）
+      notice_sent: normalizedNoticeSent
     });
 
     return res.status(201).json({ message: '创建成功' });
@@ -322,6 +430,7 @@ router.post(
         '磋商日期': 'negotiation_date',
         '审价作业表日期': 'valuation_work_date',
         '改单日期（已审价）': 'amend_date',
+        '起算日期': 'tax_start_date',
         '保证金余额': 'bond_balance',
         '延续性征税（关税）': 'continu_tax_duty',
         '延续性征税（增值税）': 'continu_tax_vat',
@@ -366,7 +475,8 @@ router.post(
             key === 'challenge_date' ||
             key === 'negotiation_date' ||
             key === 'valuation_work_date' ||
-            key === 'amend_date'
+            key === 'amend_date' ||
+            key === 'tax_start_date'
           ) {
             const normalized = normalizeDate(value);
             if (normalized?.error) {
@@ -690,11 +800,17 @@ router.patch('/ledger/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const body = req.body || {};
+    const { value: attributeFlags, error: attributeError } =
+      normalizeAttributeFlags(body.attributeFlags, ATTRIBUTE_OPTIONS);
+    if (attributeError) {
+      return res.status(400).json({ message: attributeError });
+    }
 
     await ledgerService.updateLedger(id, {
       final_invoice_date: body.finalInvoiceDate,
       latest_settle_date: body.latestSettleDate,
       doc_receipt_date: body.docReceiptDate,
+      attribute_flags: attributeFlags,
       info_exchange: body.infoExchange,
       inquiry_start_date: body.inquiryStartDate,
       challenge_date: body.challengeDate,
@@ -798,6 +914,10 @@ router.patch('/ledger/:id/tax-start-date', async (req, res) => {
     const taxStartDateRaw = req.body?.taxStartDate;
     const taxRemarkRaw = req.body?.taxRemark;
     const bondBalanceRaw = req.body?.bondBalance;
+    const extraBondRaw = req.body?.extraBond;
+    const receiptReceivedRaw = req.body?.receiptReceived;
+    const brokerNameRaw = req.body?.brokerName;
+    const noticeSentRaw = req.body?.noticeSent;
 
     let taxStartDate;
     if (taxStartDateRaw !== undefined) {
@@ -826,18 +946,66 @@ router.patch('/ledger/:id/tax-start-date', async (req, res) => {
       bondBalance = normalizedBalance;
     }
 
+    // extra_bond: 补保证金
+    let extraBond;
+    if (extraBondRaw !== undefined) {
+      const normalizedExtraBond = normalizeNumber(extraBondRaw);
+      if (normalizedExtraBond?.error) {
+        return res.status(400).json({ message: '补保证金格式不合法' });
+      }
+      extraBond = normalizedExtraBond;
+    }
+
+    // receipt_received: 是否收到收据（是/否）
+    let receiptReceived;
+    if (receiptReceivedRaw !== undefined) {
+      const normalizedReceipt = normalizeYesNo(receiptReceivedRaw);
+      if (normalizedReceipt?.error) {
+        return res.status(400).json({ message: '是否收到收据仅允许为“是/否”' });
+      }
+      receiptReceived = normalizedReceipt;
+    }
+
+    // notice_sent: 是否发送通知书（是/否）
+    let noticeSent;
+    if (noticeSentRaw !== undefined) {
+      const normalizedNotice = normalizeYesNo(noticeSentRaw);
+      if (normalizedNotice?.error) {
+        return res.status(400).json({ message: '是否发送通知书仅允许为“是/否”' });
+      }
+      noticeSent = normalizedNotice;
+    }
+
+    // broker_name: 报关行
+    let brokerName;
+    if (brokerNameRaw !== undefined) {
+      const normalizedBroker = normalizeText(brokerNameRaw, 100);
+      if (normalizedBroker?.error) {
+        return res.status(400).json({ message: '报关行名称过长' });
+      }
+      brokerName = normalizedBroker || null;
+    }
+
     if (
       taxStartDateRaw === undefined &&
       taxRemarkRaw === undefined &&
-      bondBalanceRaw === undefined
+      bondBalanceRaw === undefined &&
+      extraBondRaw === undefined &&
+      receiptReceivedRaw === undefined &&
+      brokerNameRaw === undefined &&
+      noticeSentRaw === undefined
     ) {
-      return res.status(400).json({ message: '起算日期、备注或保证金余额不能为空' });
+      return res.status(400).json({ message: '起算日期、备注或税费岗字段不能为空' });
     }
 
     const payload = {};
     if (taxStartDateRaw !== undefined) payload.tax_start_date = taxStartDate;
     if (taxRemarkRaw !== undefined) payload.tax_remark = taxRemark;
     if (bondBalanceRaw !== undefined) payload.bond_balance = bondBalance;
+    if (extraBondRaw !== undefined) payload.extra_bond = extraBond;
+    if (receiptReceivedRaw !== undefined) payload.receipt_received = receiptReceived;
+    if (brokerNameRaw !== undefined) payload.broker_name = brokerName;
+    if (noticeSentRaw !== undefined) payload.notice_sent = noticeSent;
 
     await ledgerService.updateTaxDeskInfo(id, payload);
     return res.json({ message: '更新成功' });
