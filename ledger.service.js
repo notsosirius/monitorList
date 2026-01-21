@@ -1,4 +1,4 @@
-// ledger.service.js - 审价台账 Service（业务层）
+﻿// ledger.service.js - 审价台账 Service（业务层）
 // 说明：
 // 1) 负责计算字段与业务校验，不直接拼 SQL。
 // 2) 负责重复预检与税费岗状态联动。
@@ -28,6 +28,56 @@ class LedgerService {
     if (a === null || b === null) return null;
     const diffMs = a - b;
     return Math.floor(diffMs / (24 * 60 * 60 * 1000));
+  }
+
+  // 计算工作日差（不含起始日，含结束日；空值返回 null）
+  calcBusinessDaysDiff(startDate, endDate) {
+    const start = this.toDateOnlyMs(startDate);
+    const end = this.toDateOnlyMs(endDate);
+    if (start === null || end === null) return null;
+    if (start >= end) return 0;
+    let count = 0;
+    const cursor = new Date(start);
+    cursor.setDate(cursor.getDate() + 1);
+    while (cursor.getTime() <= end) {
+      const day = cursor.getDay();
+      if (day !== 0 && day !== 6) count += 1;
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return count;
+  }
+
+  // 计算工作日差（优先使用节假日表覆盖；空值返回 null）
+  async calcBusinessDaysDiffWithCalendar(startDate, endDate) {
+    const startMs = this.toDateOnlyMs(startDate);
+    const endMs = this.toDateOnlyMs(endDate);
+    if (startMs === null || endMs === null) return null;
+    if (startMs >= endMs) return 0;
+
+    const startDateStr = new Date(startMs).toISOString().slice(0, 10);
+    const endDateStr = new Date(endMs).toISOString().slice(0, 10);
+    const rows = await ledgerDao.listHolidayCalendar(startDateStr, endDateStr);
+    const calendar = new Map();
+    rows.forEach((row) => {
+      const key = new Date(row.cal_date).toISOString().slice(0, 10);
+      calendar.set(key, row.is_workday === 1 || row.is_workday === '1');
+    });
+
+    let count = 0;
+    const cursor = new Date(startMs);
+    cursor.setDate(cursor.getDate() + 1);
+    while (cursor.getTime() <= endMs) {
+      const key = cursor.toISOString().slice(0, 10);
+      if (calendar.has(key)) {
+        if (calendar.get(key)) count += 1;
+      } else {
+        const day = cursor.getDay();
+        if (day !== 0 && day !== 6) count += 1;
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return count;
   }
 
   // 校验改单日期：必须 >= 最晚发票日期 且 >= 申报日期
@@ -107,9 +157,65 @@ class LedgerService {
     return { items: computedItems, total };
   }
 
-  // 税费岗列表（不额外计算字段）
+  // 税费岗列表（按新规则排序后再分页）
   async listTaxDesk(filters) {
-    return ledgerDao.listTaxDesk(filters);
+    const { items } = await ledgerDao.listTaxDeskRaw(filters);
+
+    // 计算起算后工作日数（用于展示）
+    const today = new Date();
+    const computed = await Promise.all(
+      items.map(async (item) => {
+        const workdays = item.tax_start_date
+          ? await this.calcBusinessDaysDiffWithCalendar(item.tax_start_date, today)
+          : null;
+        return {
+          ...item,
+          workday_since_start: workdays
+        };
+      })
+    );
+
+    const sorted = computed.sort((a, b) => {
+      // 1) 未处置在已处置前
+      const processedA = a.tax_status === '已处置';
+      const processedB = b.tax_status === '已处置';
+      if (processedA !== processedB) return processedA ? 1 : -1;
+
+      // 2) 已处置：按起算日期降序
+      if (processedA && processedB) {
+        const dateA = this.toDateOnlyMs(a.tax_start_date) ?? -Infinity;
+        const dateB = this.toDateOnlyMs(b.tax_start_date) ?? -Infinity;
+        return dateB - dateA;
+      }
+
+      // 3) 未处置：起算日期非空在前，空值在后
+      const hasStartA = Boolean(a.tax_start_date);
+      const hasStartB = Boolean(b.tax_start_date);
+      if (hasStartA !== hasStartB) return hasStartA ? -1 : 1;
+
+      // 4) 未处置且起算日期非空：按起算日期升序
+      if (hasStartA && hasStartB) {
+        const dateA = this.toDateOnlyMs(a.tax_start_date);
+        const dateB = this.toDateOnlyMs(b.tax_start_date);
+        return dateA - dateB;
+      }
+
+      // 5) 未处置且起算日期为空：按改单日期升序
+      const amendA = this.toDateOnlyMs(a.amend_date) ?? 0;
+      const amendB = this.toDateOnlyMs(b.amend_date) ?? 0;
+      return amendA - amendB;
+    });
+
+    const offset = (filters.page - 1) * filters.pageSize;
+    return {
+      items: sorted.slice(offset, offset + filters.pageSize),
+      total: sorted.length
+    };
+  }
+
+  // 批量导入节假日配置
+  async importHolidayCalendar(rows) {
+    return ledgerDao.replaceHolidayCalendar(rows);
   }
 
   // 导出列表（附加计算字段，便于导出 7/14/15）
@@ -257,3 +363,4 @@ class LedgerService {
 }
 
 module.exports = new LedgerService();
+

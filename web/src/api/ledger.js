@@ -1,4 +1,4 @@
-// API 调用封装：台账相关接口
+﻿// API 调用封装：台账相关接口
 const BASE_URL = '/api';
 
 // 统一处理 JSON 响应，失败时抛出错误供页面展示
@@ -60,13 +60,13 @@ export function updateTaxStatus(id, taxStatus) {
   });
 }
 
-// 企业缴税日期更新
-export function updateEnterpriseTaxDate(id, enterpriseTaxDate, taxRemark, bondBalance) {
-  const url = `${BASE_URL}/ledger/${id}/enterprise-tax-date`;
+// 起算日期更新
+export function updateTaxStartDate(id, taxStartDate, taxRemark, bondBalance) {
+  const url = `${BASE_URL}/ledger/${id}/tax-start-date`;
   return requestJson(url, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enterpriseTaxDate, taxRemark, bondBalance })
+    body: JSON.stringify({ taxStartDate, taxRemark, bondBalance })
   });
 }
 
@@ -86,6 +86,7 @@ export function fetchTaxDeskList(params = {}) {
   if (params.page) query.set('page', String(params.page));
   if (params.pageSize) query.set('pageSize', String(params.pageSize));
   if (params.declNo) query.set('declNo', params.declNo);
+  if (params.startDateEmpty) query.set('startDateEmpty', 'true');
   const url = `${BASE_URL}/ledger/tax-desk?${query.toString()}`;
   return requestJson(url);
 }
@@ -98,6 +99,29 @@ export async function importLedgerFile(file, options = {}) {
   const query = new URLSearchParams();
   if (options.allowDuplicate) query.set('allowDuplicate', 'true');
   const url = `${BASE_URL}/ledger/import?${query.toString()}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type':
+        file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    },
+    body: await file.arrayBuffer()
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    const error = new Error(message || '导入失败');
+    error.status = response.status;
+    throw error;
+  }
+  return response.json();
+}
+
+// 节假日导入（原始二进制上传，后端做严格校验）
+export async function importHolidayFile(file) {
+  if (!file) {
+    throw new Error('未选择 Excel 文件');
+  }
+  const url = `${BASE_URL}/holiday/import`;
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -141,3 +165,4 @@ export async function exportLedgerFile(params = {}) {
 
   return { blob, filename };
 }
+

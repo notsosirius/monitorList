@@ -1,4 +1,4 @@
-# 税收征管关键节点监控
+﻿# 税收征管关键节点监控
 
 后端 API 与 tax_ledger 表的数据模型说明。
 
@@ -70,22 +70,37 @@ Query 参数:
 curl "http://localhost:3838/api/ledger/tax-desk?page=1&pageSize=100"
 ```
 
-### ???????
+### ????????
+- amend_date ?????????
+- ? amend_date ???????
+  - final_invoice_date ??? challenge_date ???? (CURRENT_DATE - final_invoice_date) ????
+  - final_invoice_date ??? challenge_date ???? final_invoice_date ??
+  - final_invoice_date ??? challenge_date ????? amend_date ???????? declare_date ??
+- amend_date ??????????? amend_date ??
+
+### 税费岗列表排序规则
+- 未处置在已处置前
+- 已处置：按起算日期降序
+- 未处置：起算日期非空在前、空值在后
+  - 起算日期非空：按起算日期升序
+  - 起算日期为空：按改单日期升序
+
+### 税费岗单条录入
 - POST /api/ledger/tax-desk
 
-????camelCase?:
-- declNo????18 ????
-- declareDate????
-- amendDate????
-- finalInvoiceDate????
-- goodsName????
-- enterpriseTaxDate????
-- taxRemark????
+请求体（camelCase）:
+- declNo（必填，18 位数字）
+- declareDate（必填）
+- amendDate（必填）
+- finalInvoiceDate（可选）
+- goodsName（可选）
+- taxStartDate（可选）
+- taxRemark（可选）
 
-??:
-- ???????????????????????
-  - ???????????????? >= ?????? ? >= ????
-  - ????????????????? >= ????
+说明:
+- 税费岗单条录入可不填最终发票日期，校验规则为：
+  - 若填写最终发票日期：改单日期必须 >= 最终发票日期 且 >= 申报日期
+  - 若未填写最终发票日期：改单日期必须 >= 申报日期
 
 ### 查询单条记录
 - GET /api/ledger/:id
@@ -109,6 +124,74 @@ curl http://localhost:3838/api/ledger/1
 curl -X POST "http://localhost:3838/api/ledger/import" \
   -H "Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" \
   --data-binary "@tax_ledger.xlsx"
+```
+
+### 节假日导入（Excel）
+- POST /api/holiday/import
+
+说明（用于“是否超5个工作日”计算）:
+- 仅接收 `.xlsx`，解析首个工作表
+- 单次最多 2000 行
+- 表头必须包含：日期、是否工作日（可选：备注）
+- 是否工作日：支持 1/0 或 是/否
+
+导入流程（手工）:
+1) 按模板整理 Excel（首行表头）
+2) 在税费岗页面点击“节假日导入”，选择 Excel 文件
+3) 导入成功后，系统按节假日表优先计算工作日
+
+模板示例:
+| 日期 | 是否工作日 | 备注 |
+| ---- | ---------- | ---- |
+| 2026-01-01 | 0 | 元旦 |
+| 2026-01-02 | 0 | 元旦调休 |
+| 2026-01-03 | 1 | 调休补班 |
+
+### 导入数据进 TAX_LEDGER（CSV 流程）
+说明（适用于数据库直接导入）:
+- 先导入到临时表 `TAX_LEDGER_TMP`（全部字段用 VARCHAR）
+- 再通过清洗 SQL 插入 `TAX_LEDGER`
+
+流程:
+1) 在数据库创建 `TAX_LEDGER_TMP`
+2) 通过工具导入 CSV 到 `TAX_LEDGER_TMP`（不要做类型转换）
+3) 执行清洗插入 SQL（去空格/去千分位/日期转化）
+
+清洗插入示例:
+```sql
+INSERT INTO TAX_LEDGER (
+  DECL_NO, GOODS_NAME, DECLARE_DATE,
+  FINAL_INVOICE_DATE, LATEST_SETTLE_DATE, DOC_RECEIPT_DATE,
+  INFO_EXCHANGE, INQUIRY_START_DATE, CHALLENGE_DATE, NEGOTIATION_DATE,
+  VALUATION_WORK_DATE, AMEND_DATE,
+  tax_start_date, TAX_REMARK, BOND_BALANCE,
+  CONTINU_TAX_DUTY, CONTINU_TAX_VAT,
+  ADDITIONAL_TAX_DUTY, ADDITIONAL_TAX_VAT,
+  REMARK, UPDATED_AT
+)
+SELECT
+  TRIM(DECL_NO),
+  GOODS_NAME,
+  TO_DATE(NULLIF(TRIM(DECLARE_DATE), ''), 'YYYY-MM-DD'),
+  TO_DATE(NULLIF(TRIM(FINAL_INVOICE_DATE), ''), 'YYYY-MM-DD'),
+  TO_DATE(NULLIF(TRIM(LATEST_SETTLE_DATE), ''), 'YYYY-MM-DD'),
+  TO_DATE(NULLIF(TRIM(DOC_RECEIPT_DATE), ''), 'YYYY-MM-DD'),
+  INFO_EXCHANGE,
+  TO_DATE(NULLIF(TRIM(INQUIRY_START_DATE), ''), 'YYYY-MM-DD'),
+  TO_DATE(NULLIF(TRIM(CHALLENGE_DATE), ''), 'YYYY-MM-DD'),
+  TO_DATE(NULLIF(TRIM(NEGOTIATION_DATE), ''), 'YYYY-MM-DD'),
+  TO_DATE(NULLIF(TRIM(VALUATION_WORK_DATE), ''), 'YYYY-MM-DD'),
+  TO_DATE(NULLIF(TRIM(AMEND_DATE), ''), 'YYYY-MM-DD'),
+  TO_DATE(NULLIF(TRIM(tax_start_date), ''), 'YYYY-MM-DD'),
+  TAX_REMARK,
+  CAST(REPLACE(TRIM(BOND_BALANCE), ',', '') AS DECIMAL(18,2)),
+  CAST(REPLACE(TRIM(CONTINU_TAX_DUTY), ',', '') AS DECIMAL(18,2)),
+  CAST(REPLACE(TRIM(CONTINU_TAX_VAT), ',', '') AS DECIMAL(18,2)),
+  CAST(REPLACE(TRIM(ADDITIONAL_TAX_DUTY), ',', '') AS DECIMAL(18,2)),
+  CAST(REPLACE(TRIM(ADDITIONAL_TAX_VAT), ',', '') AS DECIMAL(18,2)),
+  REMARK,
+  CURRENT_TIMESTAMP
+FROM TAX_LEDGER_TMP;
 ```
 
 ### 处理页更新
@@ -192,17 +275,17 @@ curl -X PATCH http://localhost:3838/api/ledger/1/tax-status \
   -d '{ "taxStatus": "已处置" }'
 ```
 
-### 更新企业缴税日期
-- PATCH /api/ledger/:id/enterprise-tax-date
+### 更新起算日期
+- PATCH /api/ledger/:id/tax-start-date
 
 请求体:
-- enterpriseTaxDate（必填，YYYY-MM-DD 或空字符串）
+- taxStartDate（必填，YYYY-MM-DD 或空字符串）
 
 示例:
 ```bash
-curl -X PATCH http://localhost:3838/api/ledger/1/enterprise-tax-date \
+curl -X PATCH http://localhost:3838/api/ledger/1/tax-start-date \
   -H "Content-Type: application/json" \
-  -d '{ "enterpriseTaxDate": "2026-01-20" }'
+  -d '{ "taxStartDate": "2026-01-20" }'
 ```
 
 ### 导出 Excel
@@ -256,7 +339,7 @@ CREATE TABLE tax_ledger (
   negotiation_date DATE,
   valuation_work_date DATE,
   amend_date DATE,
-  enterprise_tax_date DATE,
+  tax_start_date DATE,
   continu_tax_duty DECIMAL(18,2),
   continu_tax_vat DECIMAL(18,2),
   additional_tax_duty DECIMAL(18,2),
@@ -281,3 +364,4 @@ CREATE INDEX idx_tax_ledger_decl_no ON tax_ledger (decl_no);
   - 10 < 当前时间减第4项 ≤ 20：橙色
   - 当前时间减第4项 ≤ 10：黄色
 - 第13项为空且第10项（质疑日期）非空：黄色
+

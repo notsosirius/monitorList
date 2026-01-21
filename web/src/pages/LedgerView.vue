@@ -21,7 +21,7 @@ const fields = [
   { key: 'decl_no', label: '报关单号' },
   { key: 'goods_name', label: '商品名称' },
   { key: 'declare_date', label: '申报日期' },
-  { key: 'final_invoice_date', label: '最晚发票日期' },
+  { key: 'final_invoice_date', label: '最终发票日期' },
   { key: 'latest_settle_date', label: '最晚结算资料日期' },
   { key: 'doc_receipt_date', label: '资料签收日期' },
   { key: 'days_receipt_invoice', label: '是否超30天（签收-发票）' },

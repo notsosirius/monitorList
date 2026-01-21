@@ -1,11 +1,12 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, onMounted } from 'vue';
 import {
   fetchTaxDeskList,
   updateTaxStatus,
-  updateEnterpriseTaxDate,
+  updateTaxStartDate,
   createTaxDeskEntry,
-  importLedgerFile
+  importLedgerFile,
+  importHolidayFile
 } from '../api/ledger';
 
 const emit = defineEmits(['back']);
@@ -16,6 +17,7 @@ const total = ref(0);
 const loading = ref(false);
 const errorMessage = ref('');
 const declNo = ref('');
+const startDateEmpty = ref(false);
 
 // 本页面只展示前 100 条（税费岗入口）
 const page = ref(1);
@@ -28,7 +30,7 @@ const actionError = ref('');
 const toast = ref({ visible: false, message: '', type: 'success' });
 let toastTimer = null;
 
-// 企业缴税日期录入弹窗状态
+// 起算日期录入弹窗状态
 const taxDateVisible = ref(false);
 const taxDateLoading = ref(false);
 const taxDateError = ref('');
@@ -44,7 +46,7 @@ const entryForm = ref({
   goodsName: '',
   declareDate: '',
   amendDate: '',
-  enterpriseTaxDate: '',
+  taxStartDate: '',
   taxRemark: '',
   bondBalance: ''
 });
@@ -54,6 +56,8 @@ const entryError = ref('');
 // 导入状态
 const importing = ref(false);
 const importInput = ref(null);
+const holidayImporting = ref(false);
+const holidayImportInput = ref(null);
 
 // 处置确认弹窗状态
 const confirmVisible = ref(false);
@@ -71,12 +75,12 @@ function showToast(message, type = 'success') {
 // 后端已按“未处置优先 + 改单日期降序”排序
 const sortedItems = computed(() => items.value);
 
-// 税费岗紧急状态：已处置 -> 绿色；按企业缴税日期工作日差分级
+// 税费岗紧急状态：已处置 -> 绿色；按起算日期工作日差分级
 function getTaxDeskUrgency(row) {
   if (!row) return 'yellow';
   if (row.tax_status === '已处置') return 'green';
-  if (!row.enterprise_tax_date) return 'yellow';
-  const businessDays = calcBusinessDaysDiff(row.enterprise_tax_date, new Date());
+  if (!row.tax_start_date) return 'yellow';
+  const businessDays = calcBusinessDaysDiff(row.tax_start_date, new Date());
   if (businessDays <= 1) return 'yellow';
   if (businessDays <= 3) return 'orange';
   return 'red';
@@ -99,7 +103,8 @@ async function loadList() {
     const data = await fetchTaxDeskList({
       page: page.value,
       pageSize: pageSize.value,
-      declNo: declNo.value || undefined
+      declNo: declNo.value || undefined,
+      startDateEmpty: startDateEmpty.value
     });
     items.value = data.items || [];
     total.value = data.total || 0;
@@ -145,6 +150,7 @@ function handleSearch() {
 
 function handleReset() {
   declNo.value = '';
+  startDateEmpty.value = false;
   page.value = 1;
   loadList();
 }
@@ -250,7 +256,7 @@ function openTaxDate(row) {
   taxDateVisible.value = true;
   taxDateError.value = '';
   taxDateId.value = row.id;
-  taxDateValue.value = toDateInput(row.enterprise_tax_date);
+  taxDateValue.value = toDateInput(row.tax_start_date);
   taxRemarkValue.value = row.tax_remark || '';
   bondBalanceValue.value = row.bond_balance ?? '';
 }
@@ -269,14 +275,14 @@ async function submitTaxDate() {
   taxDateLoading.value = true;
   taxDateError.value = '';
   try {
-    await updateEnterpriseTaxDate(
+    await updateTaxStartDate(
       taxDateId.value,
       taxDateValue.value || null,
       taxRemarkValue.value || null,
       bondBalanceValue.value === '' ? null : bondBalanceValue.value
     );
     await loadList();
-    showToast('企业缴税日期已更新', 'success');
+    showToast('起算日期已更新', 'success');
     closeTaxDate();
   } catch (error) {
     taxDateError.value = error.message || '更新失败';
@@ -305,7 +311,7 @@ async function submitEntry() {
       goodsName: entryForm.value.goodsName || undefined,
       declareDate: entryForm.value.declareDate,
       amendDate: entryForm.value.amendDate,
-      enterpriseTaxDate: entryForm.value.enterpriseTaxDate || undefined,
+      taxStartDate: entryForm.value.taxStartDate || undefined,
       taxRemark: entryForm.value.taxRemark || undefined,
       bondBalance: entryForm.value.bondBalance === '' ? undefined : entryForm.value.bondBalance
     });
@@ -314,7 +320,7 @@ async function submitEntry() {
       goodsName: '',
       declareDate: '',
       amendDate: '',
-      enterpriseTaxDate: '',
+      taxStartDate: '',
       taxRemark: '',
       bondBalance: ''
     };
@@ -355,6 +361,31 @@ function triggerImport() {
   importInput.value?.click();
 }
 
+async function handleHolidayImportChange(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.xlsx')) {
+    showToast('仅支持 .xlsx 文件', 'error');
+    event.target.value = '';
+    return;
+  }
+
+  try {
+    holidayImporting.value = true;
+    const result = await importHolidayFile(file);
+    showToast(`节假日导入完成：${result.inserted}`, 'success');
+  } catch (error) {
+    showToast(error.message || '导入失败', 'error');
+  } finally {
+    holidayImporting.value = false;
+    event.target.value = '';
+  }
+}
+
+function triggerHolidayImport() {
+  holidayImportInput.value?.click();
+}
+
 onMounted(() => {
   loadList();
 });
@@ -387,10 +418,32 @@ onMounted(() => {
             @keydown.enter.prevent="handleSearch"
           />
         </div>
+        <div class="filter-item">
+          <label>起算日期</label>
+          <label class="inline-check">
+            <input v-model="startDateEmpty" type="checkbox" />
+            <span>仅看为空</span>
+          </label>
+        </div>
         <div class="filter-actions">
           <button class="btn" type="button" @click="handleSearch">查询</button>
           <button class="btn ghost" type="button" @click="handleReset">重置</button>
           <div class="filter-actions-right">
+            <input
+              ref="holidayImportInput"
+              class="visually-hidden"
+              type="file"
+              accept=".xlsx"
+              @change="handleHolidayImportChange"
+            />
+            <button
+              class="btn ghost"
+              type="button"
+              :disabled="holidayImporting"
+              @click="triggerHolidayImport"
+            >
+              {{ holidayImporting ? '导入中...' : '节假日导入' }}
+            </button>
             <input
               ref="importInput"
               class="visually-hidden"
@@ -440,13 +493,10 @@ onMounted(() => {
               <th class="sticky">报关单号</th>
               <th>商品名称</th>
               <th>改单日期</th>
-              <th>延续性征税（关税）</th>
-              <th>延续性征税（增值税）</th>
-              <th>审价补税（关税）</th>
-              <th>审价补税（增值税）</th>
               <th>保证金余额</th>
-              <th>企业缴税日期</th>
               <th class="col-text single-line">税费岗备注</th>
+              <th>起算日期</th>
+              <th>是否超5个工作日</th>
               <th>税费岗状态</th>
               <th>处置</th>
             </tr>
@@ -459,13 +509,10 @@ onMounted(() => {
               <td class="sticky">{{ displayValue(row.decl_no) }}</td>
               <td>{{ displayValue(row.goods_name) }}</td>
               <td>{{ displayValue(row.amend_date) }}</td>
-              <td>{{ displayValue(row.continu_tax_duty) }}</td>
-              <td>{{ displayValue(row.continu_tax_vat) }}</td>
-              <td>{{ displayValue(row.additional_tax_duty) }}</td>
-              <td>{{ displayValue(row.additional_tax_vat) }}</td>
               <td>{{ displayValue(row.bond_balance) }}</td>
-              <td>{{ displayValue(row.enterprise_tax_date) }}</td>
               <td class="col-text single-line">{{ displayValue(row.tax_remark) }}</td>
+              <td>{{ displayValue(row.tax_start_date) }}</td>
+              <td>{{ displayValue(row.workday_since_start) }}</td>
               <td>{{ displayValue(row.tax_status) }}</td>
               <td>
                 <button
@@ -474,7 +521,7 @@ onMounted(() => {
                   :disabled="row.tax_status === '已处置'"
                   @click="openTaxDate(row)"
                 >
-                  {{ row.enterprise_tax_date ? '修改' : '录入' }}
+                  {{ row.tax_start_date ? '修改' : '录入' }}
                 </button>
                 <button
                   class="btn small"
@@ -532,8 +579,8 @@ onMounted(() => {
               <input v-model="entryForm.amendDate" type="date" lang="en-CA" />
             </label>
             <label>
-              企业缴税日期
-              <input v-model="entryForm.enterpriseTaxDate" type="date" lang="en-CA" class="align-left" />
+              起算日期
+              <input v-model="entryForm.taxStartDate" type="date" lang="en-CA" class="align-left" />
             </label>
             <label>
               保证金余额
@@ -559,7 +606,7 @@ onMounted(() => {
       <div class="modal-card compact">
         <header class="modal-header">
           <div>
-            <p class="eyebrow">企业缴税日期</p>
+            <p class="eyebrow">起算日期</p>
             <h2>税收征管关键节点监控</h2>
           </div>
           <button class="btn ghost" type="button" @click="closeTaxDate">关闭</button>
@@ -568,7 +615,7 @@ onMounted(() => {
         <form class="modal-body" @submit.prevent="submitTaxDate">
           <div class="form-grid">
             <label>
-              企业缴税日期
+              起算日期
               <input v-model="taxDateValue" type="date" lang="en-CA" class="align-left" />
             </label>
             <label>
@@ -617,3 +664,4 @@ onMounted(() => {
     </div>
   </section>
 </template>
+

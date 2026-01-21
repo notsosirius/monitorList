@@ -1,4 +1,4 @@
-// ledger.controller.js - 审价台账 Controller（路由层）
+﻿// ledger.controller.js - 审价台账 Controller（路由层）
 // 说明：
 // 1) 处理 HTTP 请求参数校验与返回格式。
 // 2) 调用 Service 完成业务逻辑。
@@ -36,6 +36,19 @@ function normalizeNumber(value) {
     return { error: '数值格式不合法' };
   }
   return num;
+}
+
+function normalizeWorkdayFlag(value) {
+  if (value === null || value === undefined || value === '') {
+    return { error: '是否工作日不能为空' };
+  }
+  const text = String(value).trim();
+  if (text === '1' || text === '是' || text.toLowerCase() === 'true') return 1;
+  if (text === '0' || text === '否' || text.toLowerCase() === 'false') return 0;
+  const num = Number(text);
+  if (num === 1) return 1;
+  if (num === 0) return 0;
+  return { error: '是否工作日仅允许为 1/0 或 是/否' };
 }
 
 // 日期字段规范化：统一输出 YYYY-MM-DD（仅接受 yyyy/mm/dd 或 yyyy-mm-dd）
@@ -154,6 +167,8 @@ router.get('/ledger/tax-desk', async (req, res) => {
     if (req.query.declNo && !isValidDeclNo(req.query.declNo)) {
       return res.status(400).json({ message: '报关单号必须为 18 位数字' });
     }
+    // 起算日期为空筛选（仅显示空值记录）
+    const startDateEmpty = req.query.startDateEmpty === '1' || req.query.startDateEmpty === 'true';
     const page = Math.max(parseInt(req.query.page || '1', 10), 1);
     const rawPageSize = parseInt(req.query.pageSize || '100', 10);
     const pageSize = rawPageSize > 100 ? 100 : rawPageSize;
@@ -161,7 +176,8 @@ router.get('/ledger/tax-desk', async (req, res) => {
     const result = await ledgerService.listTaxDesk({
       page,
       pageSize,
-      declNo: req.query.declNo || null
+      declNo: req.query.declNo || null,
+      startDateEmpty
     });
     res.json({
       page,
@@ -183,7 +199,7 @@ router.post('/ledger/tax-desk', async (req, res) => {
       declareDate,
       finalInvoiceDate,
       amendDate,
-      enterpriseTaxDate,
+      taxStartDate,
       taxRemark,
       bondBalance
     } = req.body || {};
@@ -215,13 +231,13 @@ router.post('/ledger/tax-desk', async (req, res) => {
       return res.status(400).json({ message: '改单日期格式不合法' });
     }
 
-    let normalizedEnterpriseTaxDate = null;
-    if (enterpriseTaxDate) {
-      const normalized = normalizeDate(enterpriseTaxDate);
+    let normalizedTaxStartDate = null;
+    if (taxStartDate) {
+      const normalized = normalizeDate(taxStartDate);
       if (normalized?.error) {
-        return res.status(400).json({ message: '企业缴税日期格式不合法' });
+        return res.status(400).json({ message: '起算日期格式不合法' });
       }
-      normalizedEnterpriseTaxDate = normalized;
+      normalizedTaxStartDate = normalized;
     }
 
     let normalizedTaxRemark = null;
@@ -248,7 +264,7 @@ router.post('/ledger/tax-desk', async (req, res) => {
       declare_date: normalizedDeclareDate,
       final_invoice_date: normalizedFinalInvoiceDate,
       amend_date: normalizedAmendDate,
-      enterprise_tax_date: normalizedEnterpriseTaxDate,
+      tax_start_date: normalizedTaxStartDate,
       tax_remark: normalizedTaxRemark,
       bond_balance: normalizedBondBalance
     });
@@ -450,6 +466,114 @@ router.post(
         message: '导入完成',
         inserted: result.inserted,
         skipped: result.skipped,
+        total: records.length
+      });
+    } catch (error) {
+      return res.status(500).send('导入失败');
+    }
+  }
+);
+
+// 节假日导入（仅包含日期 + 是否工作日 + 备注）
+router.post(
+  '/holiday/import',
+  express.raw({
+    type: [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/octet-stream'
+    ],
+    limit: '2mb'
+  }),
+  async (req, res) => {
+    try {
+      if (!req.body || !req.body.length) {
+        return res.status(400).send('未收到 Excel 文件内容');
+      }
+
+      const workbook = XLSX.read(req.body, { type: 'buffer', cellDates: true });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      if (!sheet) {
+        return res.status(400).send('Excel 内容为空');
+      }
+
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+      if (!rows.length) {
+        return res.status(400).send('Excel 内容为空');
+      }
+
+      const header = rows[0].map((cell) => String(cell).trim());
+      const headerMap = {
+        '日期': 'cal_date',
+        '是否工作日': 'is_workday',
+        '备注': 'note'
+      };
+      const columns = header.map((name) => headerMap[name] || null);
+      if (!columns.includes('cal_date') || !columns.includes('is_workday')) {
+        return res.status(400).send('缺少必填列：日期、是否工作日');
+      }
+
+      if (rows.length > 2001) {
+        return res.status(400).send('单次导入最多支持 2000 行');
+      }
+
+      const errors = [];
+      const records = [];
+      for (let i = 1; i < rows.length; i += 1) {
+        const row = rows[i];
+        let hasValue = false;
+        const record = {};
+        columns.forEach((key, index) => {
+          if (!key) return;
+          const value = row[index];
+          if (value !== null && value !== undefined && value !== '') {
+            hasValue = true;
+          }
+          if (key === 'cal_date') {
+            const normalized = normalizeDate(value);
+            if (normalized?.error) {
+              errors.push(`第 ${i + 1} 行日期格式不合法`);
+            } else {
+              record.cal_date = normalized;
+            }
+            return;
+          }
+          if (key === 'is_workday') {
+            const normalized = normalizeWorkdayFlag(value);
+            if (normalized?.error) {
+              errors.push(`第 ${i + 1} 行是否工作日不合法`);
+            } else {
+              record.is_workday = normalized;
+            }
+            return;
+          }
+          if (key === 'note') {
+            const normalized = normalizeText(value, 200);
+            if (normalized?.error) {
+              errors.push(`第 ${i + 1} 行备注过长`);
+            } else {
+              record.note = normalized;
+            }
+          }
+        });
+
+        if (!hasValue) continue;
+        records.push(record);
+      }
+
+      if (!records.length) {
+        return res.status(400).send('没有可导入的数据行');
+      }
+
+      if (errors.length) {
+        const list = errors.slice(0, 10).join('；');
+        return res.status(400).send(`导入数据校验失败：${list}`);
+      }
+
+      const result = await ledgerService.importHolidayCalendar(records);
+      return res.json({
+        message: '导入完成',
+        inserted: result.inserted,
         total: records.length
       });
     } catch (error) {
@@ -668,20 +792,20 @@ router.patch('/ledger/:id/tax-status', async (req, res) => {
 });
 
 // 更新税费岗录入字段（独立字段，避免覆盖其他字段）
-router.patch('/ledger/:id/enterprise-tax-date', async (req, res) => {
+router.patch('/ledger/:id/tax-start-date', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const enterpriseTaxDateRaw = req.body?.enterpriseTaxDate;
+    const taxStartDateRaw = req.body?.taxStartDate;
     const taxRemarkRaw = req.body?.taxRemark;
     const bondBalanceRaw = req.body?.bondBalance;
 
-    let enterpriseTaxDate;
-    if (enterpriseTaxDateRaw !== undefined) {
-      const normalized = normalizeDate(enterpriseTaxDateRaw);
+    let taxStartDate;
+    if (taxStartDateRaw !== undefined) {
+      const normalized = normalizeDate(taxStartDateRaw);
       if (normalized?.error) {
-        return res.status(400).json({ message: '企业缴税日期格式不合法' });
+        return res.status(400).json({ message: '起算日期格式不合法' });
       }
-      enterpriseTaxDate = normalized || null;
+      taxStartDate = normalized || null;
     }
 
     let taxRemark;
@@ -703,15 +827,15 @@ router.patch('/ledger/:id/enterprise-tax-date', async (req, res) => {
     }
 
     if (
-      enterpriseTaxDateRaw === undefined &&
+      taxStartDateRaw === undefined &&
       taxRemarkRaw === undefined &&
       bondBalanceRaw === undefined
     ) {
-      return res.status(400).json({ message: '企业缴税日期、备注或保证金余额不能为空' });
+      return res.status(400).json({ message: '起算日期、备注或保证金余额不能为空' });
     }
 
     const payload = {};
-    if (enterpriseTaxDateRaw !== undefined) payload.enterprise_tax_date = enterpriseTaxDate;
+    if (taxStartDateRaw !== undefined) payload.tax_start_date = taxStartDate;
     if (taxRemarkRaw !== undefined) payload.tax_remark = taxRemark;
     if (bondBalanceRaw !== undefined) payload.bond_balance = bondBalance;
 
@@ -723,3 +847,4 @@ router.patch('/ledger/:id/enterprise-tax-date', async (req, res) => {
 });
 
 module.exports = router;
+

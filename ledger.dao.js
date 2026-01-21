@@ -1,4 +1,4 @@
-// ledger.dao.js - 审价台账 DAO（数据访问层）
+﻿// ledger.dao.js - 审价台账 DAO（数据访问层）
 // 说明：
 // 1) 只负责 SQL 与数据持久化，不处理业务规则。
 // 2) 列表查询在 SQL 层做过滤/排序/分页。
@@ -13,7 +13,7 @@ class LedgerDao {
         decl_no, goods_name, declare_date,
         final_invoice_date, latest_settle_date, doc_receipt_date,
         info_exchange, inquiry_start_date, challenge_date, negotiation_date,
-        valuation_work_date, amend_date, enterprise_tax_date, tax_remark, bond_balance,
+        valuation_work_date, amend_date, tax_start_date, tax_remark, bond_balance,
         continu_tax_duty, continu_tax_vat, additional_tax_duty, additional_tax_vat,
         remark, tax_status, updated_at
       )
@@ -33,7 +33,8 @@ class LedgerDao {
       data.negotiation_date || null,
       data.valuation_work_date || null,
       data.amend_date || null,
-      data.enterprise_tax_date || null,
+      // tax_start_date: 起算日期
+      data.tax_start_date || null,
       data.tax_remark || null,
       data.bond_balance || null,
       data.continu_tax_duty || null,
@@ -170,9 +171,9 @@ class LedgerDao {
     const sets = [];
     const params = [];
 
-    if (Object.prototype.hasOwnProperty.call(data, 'enterprise_tax_date')) {
-      sets.push('enterprise_tax_date = ?');
-      params.push(data.enterprise_tax_date || null);
+    if (Object.prototype.hasOwnProperty.call(data, 'tax_start_date')) {
+      sets.push('tax_start_date = ?');
+      params.push(data.tax_start_date || null);
     }
 
     if (Object.prototype.hasOwnProperty.call(data, 'tax_remark')) {
@@ -227,19 +228,27 @@ class LedgerDao {
     // A) amend_date 为空的记录排在最前
     // B) amend_date 非空的记录排在后，并按 amend_date 降序
     // C) 对于 amend_date 为空的记录：
-    //    C1) 若 challenge_date 为空：排在更前，按“当前日期 - final_invoice_date”的天数降序
-    //    C2) 若 challenge_date 非空：排在后一组，按 final_invoice_date 升序
+    //    C1) 若 final_invoice_date 为空且 challenge_date 为空：排在 amend_date 为空序列的末位，按 declare_date 升序
+    //    C2) 若 final_invoice_date 非空且 challenge_date 为空：排在更前，按“当前日期 - final_invoice_date”的天数降序
+    //    C3) 若 final_invoice_date 非空且 challenge_date 非空：排在后一组，按 final_invoice_date 升序
     const orderBy = `
       ORDER BY
         CASE WHEN amend_date IS NULL THEN 0 ELSE 1 END ASC,
-        CASE WHEN amend_date IS NULL AND challenge_date IS NULL THEN 0 ELSE 1 END ASC,
+        CASE WHEN amend_date IS NULL AND final_invoice_date IS NULL AND challenge_date IS NULL THEN 1 ELSE 0 END ASC,
+        CASE WHEN amend_date IS NULL AND final_invoice_date IS NOT NULL AND challenge_date IS NULL THEN 0 ELSE 1 END ASC,
         CASE WHEN amend_date IS NOT NULL THEN amend_date ELSE NULL END DESC,
         CASE
-          WHEN amend_date IS NULL AND challenge_date IS NULL THEN (CURRENT_DATE - final_invoice_date)
+          WHEN amend_date IS NULL AND final_invoice_date IS NOT NULL AND challenge_date IS NULL
+          THEN (CURRENT_DATE - final_invoice_date)
           ELSE NULL
         END DESC,
         CASE
-          WHEN amend_date IS NULL AND challenge_date IS NOT NULL THEN final_invoice_date
+          WHEN amend_date IS NULL AND final_invoice_date IS NOT NULL AND challenge_date IS NOT NULL
+          THEN final_invoice_date
+          ELSE NULL
+        END ASC,
+        CASE
+          WHEN amend_date IS NULL AND final_invoice_date IS NULL AND challenge_date IS NULL THEN declare_date
           ELSE NULL
         END ASC
     `;
@@ -266,6 +275,16 @@ class LedgerDao {
 
   // 税费岗列表（仅展示改单日期非空记录）
   async listTaxDesk(filters) {
+    const { items, total } = await this.listTaxDeskRaw(filters);
+    const offset = (filters.page - 1) * filters.pageSize;
+    return {
+      items: items.slice(offset, offset + filters.pageSize),
+      total
+    };
+  }
+
+  // 税费岗列表原始数据（不排序、不分页）
+  async listTaxDeskRaw(filters) {
     const params = [];
     let where = 'WHERE amend_date IS NOT NULL';
     if (filters.declNo) {
@@ -273,23 +292,18 @@ class LedgerDao {
       where += ' AND decl_no = ?';
       params.push(filters.declNo);
     }
-    const orderBy = `
-      ORDER BY
-        CASE WHEN tax_status = '已处置' THEN 1 ELSE 0 END ASC,
-        amend_date DESC
-    `;
-
-    const offset = (filters.page - 1) * filters.pageSize;
+    if (filters.startDateEmpty) {
+      // 起算日期为空筛选
+      where += ' AND tax_start_date IS NULL';
+    }
     const sql = `
       SELECT * FROM tax_ledger
       ${where}
-      ${orderBy}
-      LIMIT ? OFFSET ?
     `;
 
     const countSql = `SELECT COUNT(*) AS total FROM tax_ledger ${where}`;
     const [items, count] = await Promise.all([
-      db.query(sql, [...params, filters.pageSize, offset]),
+      db.query(sql, params),
       db.query(countSql, params)
     ]);
 
@@ -297,6 +311,34 @@ class LedgerDao {
       items,
       total: count[0]?.total || 0
     };
+  }
+
+  // 查询节假日配置（日期范围内）
+  async listHolidayCalendar(startDate, endDate) {
+    const sql = `
+      SELECT cal_date, is_workday
+      FROM holiday_calendar
+      WHERE cal_date BETWEEN ? AND ?
+    `;
+    return db.query(sql, [startDate, endDate]);
+  }
+
+  // 批量写入节假日配置（先删后插）
+  async replaceHolidayCalendar(rows) {
+    if (!rows.length) return { inserted: 0 };
+    const dates = rows.map((row) => row.cal_date);
+    const placeholders = dates.map(() => '?').join(', ');
+    const deleteSql = `DELETE FROM holiday_calendar WHERE cal_date IN (${placeholders})`;
+    await db.execute(deleteSql, dates);
+
+    const insertSql = `
+      INSERT INTO holiday_calendar (cal_date, is_workday, note)
+      VALUES (?, ?, ?)
+    `;
+    for (const row of rows) {
+      await db.execute(insertSql, [row.cal_date, row.is_workday, row.note || null]);
+    }
+    return { inserted: rows.length };
   }
 
   // 仅更新税费岗状态（避免覆盖处理页的其他字段）
@@ -358,3 +400,4 @@ class LedgerDao {
 }
 
 module.exports = new LedgerDao();
+

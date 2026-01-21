@@ -450,7 +450,7 @@ onMounted(() => {
               <th class="sticky">报关单号</th>
               <th>商品名称</th>
               <th>申报日期</th>
-              <th>最晚发票日期</th>
+              <th>最终发票日期</th>
               <th>最晚结算资料日期</th>
               <th>资料签收日期</th>
               <th>是否超30天（签收-发票）</th>
@@ -467,7 +467,6 @@ onMounted(() => {
               <th>审价补税（关税）</th>
               <th>审价补税（增值税）</th>
               <th class="col-text single-line">备注</th>
-              <th>税费岗状态</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -500,7 +499,6 @@ onMounted(() => {
               <td>{{ displayValue(row.additional_tax_duty) }}</td>
               <td>{{ displayValue(row.additional_tax_vat) }}</td>
               <td class="col-text single-line">{{ displayValue(row.remark) }}</td>
-              <td>{{ displayValue(row.tax_status) }}</td>
               <td>
                 <button class="btn small" type="button" @click="viewRecord(row.id)">查看</button>
                 <button class="btn small ghost" type="button" @click="openEdit(row.id)">处理</button>
@@ -526,7 +524,7 @@ onMounted(() => {
         <form v-else class="modal-body" @submit.prevent="submitEdit">
           <div class="form-grid">
             <label>
-              最晚发票日期
+              最终发票日期
               <input v-model="editForm.finalInvoiceDate" type="date" lang="en-CA" :disabled="viewMode" />
             </label>
             <label>

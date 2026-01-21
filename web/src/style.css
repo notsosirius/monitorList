@@ -157,6 +157,14 @@ body {
   color: #1b1b1b;
 }
 
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #6b5a46;
+}
+
 .filter-actions {
   display: flex;
   gap: 10px;
@@ -305,26 +313,26 @@ body {
 
 /* 紧急状态圆点 */
 .dot {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   display: inline-block;
 }
 
 .dot-green {
-  background: #3a7d4c;
+  background: #1f8a3b;
 }
 
 .dot-yellow {
-  background: #d7b557;
+  background: #f0b400;
 }
 
 .dot-orange {
-  background: #e28b3f;
+  background: #ff7a00;
 }
 
 .dot-red {
-  background: #c24b3a;
+  background: #d10000;
 }
 
 /* 详情页 */
