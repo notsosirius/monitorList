@@ -215,6 +215,15 @@ router.get('/ledger/tax-desk', async (req, res) => {
     }
     // 起算日期为空筛选（仅显示空值记录）
     const startDateEmpty = req.query.startDateEmpty === '1' || req.query.startDateEmpty === 'true';
+    // 未发送通知书筛选（notice_sent 为空或为否）
+    const noticeUnsent = req.query.noticeUnsent === '1' || req.query.noticeUnsent === 'true';
+    // 未收到收据筛选（receipt_received 为否）
+    const receiptUnreceived =
+      req.query.receiptUnreceived === '1' || req.query.receiptUnreceived === 'true';
+    // 补保证金模糊匹配
+    const extraBondLike = req.query.extraBondLike
+      ? String(req.query.extraBondLike).trim()
+      : null;
     const page = Math.max(parseInt(req.query.page || '1', 10), 1);
     const rawPageSize = parseInt(req.query.pageSize || '100', 10);
     const pageSize = rawPageSize > 100 ? 100 : rawPageSize;
@@ -223,7 +232,10 @@ router.get('/ledger/tax-desk', async (req, res) => {
       page,
       pageSize,
       declNo: req.query.declNo || null,
-      startDateEmpty
+      startDateEmpty,
+      noticeUnsent,
+      receiptUnreceived,
+      extraBondLike
     });
     res.json({
       page,
@@ -233,6 +245,76 @@ router.get('/ledger/tax-desk', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: '查询失败' });
+  }
+});
+
+// 税费岗导出（按筛选条件）
+router.get('/ledger/tax-desk/export', async (req, res) => {
+  try {
+    if (req.query.declNo && !isValidDeclNo(req.query.declNo)) {
+      return res.status(400).json({ message: '报关单号必须为 18 位数字' });
+    }
+    const startDateEmpty = req.query.startDateEmpty === '1' || req.query.startDateEmpty === 'true';
+    const noticeUnsent = req.query.noticeUnsent === '1' || req.query.noticeUnsent === 'true';
+    const receiptUnreceived =
+      req.query.receiptUnreceived === '1' || req.query.receiptUnreceived === 'true';
+    const extraBondLike = req.query.extraBondLike
+      ? String(req.query.extraBondLike).trim()
+      : null;
+
+    const items = await ledgerService.exportTaxDesk({
+      declNo: req.query.declNo || null,
+      startDateEmpty,
+      noticeUnsent,
+      receiptUnreceived,
+      extraBondLike
+    });
+
+    const header = [
+      '报关单号',
+      '商品名称',
+      '改单日期',
+      '补保证金',
+      '保证金余额',
+      '是否收到收据',
+      '报关行',
+      '是否发送通知书',
+      '起算日期',
+      '是否超5个工作日',
+      '税费岗备注',
+      '税费岗状态'
+    ];
+
+    const rows = items.map((item) => [
+      item.decl_no,
+      item.goods_name,
+      item.amend_date,
+      item.extra_bond,
+      item.bond_balance,
+      item.receipt_received,
+      item.broker_name,
+      item.notice_sent,
+      item.tax_start_date,
+      item.workday_since_start ?? null,
+      item.tax_remark,
+      item.tax_status
+    ]);
+
+    const sheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'tax_desk');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const filename = `税费岗_导出_${dateStr}.xlsx`;
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ message: '导出失败' });
   }
 });
 
@@ -261,13 +343,14 @@ router.post('/ledger/tax-desk', async (req, res) => {
     if (!isValidDeclNo(declNo)) {
       return res.status(400).json({ message: '报关单号必须为 18 位数字' });
     }
-    if (!declareDate || !amendDate) {
-      return res.status(400).json({ message: '申报日期、改单日期不能为空' });
-    }
-
-    const normalizedDeclareDate = normalizeDate(declareDate);
-    if (normalizedDeclareDate?.error) {
-      return res.status(400).json({ message: '申报日期格式不合法' });
+    // 税费岗单条录入：申报日期/改单日期允许为空（有值才校验）
+    let normalizedDeclareDate = null;
+    if (declareDate) {
+      const normalized = normalizeDate(declareDate);
+      if (normalized?.error) {
+        return res.status(400).json({ message: '申报日期格式不合法' });
+      }
+      normalizedDeclareDate = normalized;
     }
     let normalizedFinalInvoiceDate = null;
     if (finalInvoiceDate) {
@@ -277,9 +360,13 @@ router.post('/ledger/tax-desk', async (req, res) => {
       }
       normalizedFinalInvoiceDate = normalized;
     }
-    const normalizedAmendDate = normalizeDate(amendDate);
-    if (normalizedAmendDate?.error) {
-      return res.status(400).json({ message: '改单日期格式不合法' });
+    let normalizedAmendDate = null;
+    if (amendDate) {
+      const normalized = normalizeDate(amendDate);
+      if (normalized?.error) {
+        return res.status(400).json({ message: '改单日期格式不合法' });
+      }
+      normalizedAmendDate = normalized;
     }
 
     let normalizedTaxStartDate = null;
@@ -325,6 +412,10 @@ router.post('/ledger/tax-desk', async (req, res) => {
         return res.status(400).json({ message: '是否收到收据仅允许为“是/否”' });
       }
       normalizedReceiptReceived = normalized;
+    }
+
+    if (normalizedBondBalance !== null && normalizedReceiptReceived === null) {
+      normalizedReceiptReceived = '否';
     }
 
     let normalizedNoticeSent = null;
@@ -432,6 +523,7 @@ router.post(
         '改单日期（已审价）': 'amend_date',
         '起算日期': 'tax_start_date',
         '保证金余额': 'bond_balance',
+        '是否收到收据': 'receipt_received',
         '延续性征税（关税）': 'continu_tax_duty',
         '延续性征税（增值税）': 'continu_tax_vat',
         '审价补税（关税）': 'additional_tax_duty',
@@ -498,6 +590,16 @@ router.post(
             const normalized = normalizeNumber(value);
             if (normalized?.error) {
               errors.push(`第 ${i + 1} 行税费数值不合法`);
+            } else {
+              record[key] = normalized;
+            }
+            return;
+          }
+
+          if (key === 'receipt_received') {
+            const normalized = normalizeYesNo(value);
+            if (normalized?.error) {
+              errors.push(`第 ${i + 1} 行是否收到收据不合法`);
             } else {
               record[key] = normalized;
             }
@@ -807,6 +909,8 @@ router.patch('/ledger/:id', async (req, res) => {
     }
 
     await ledgerService.updateLedger(id, {
+      // tax_no: 税号（处理页可修改）
+      tax_no: body.taxNo,
       final_invoice_date: body.finalInvoiceDate,
       latest_settle_date: body.latestSettleDate,
       doc_receipt_date: body.docReceiptDate,
@@ -966,6 +1070,10 @@ router.patch('/ledger/:id/tax-start-date', async (req, res) => {
       receiptReceived = normalizedReceipt;
     }
 
+    if (bondBalance !== null && receiptReceivedRaw === undefined) {
+      receiptReceived = '否';
+    }
+
     // notice_sent: 是否发送通知书（是/否）
     let noticeSent;
     if (noticeSentRaw !== undefined) {
@@ -1011,6 +1119,45 @@ router.patch('/ledger/:id/tax-start-date', async (req, res) => {
     return res.json({ message: '更新成功' });
   } catch (error) {
     return res.status(500).json({ message: '更新失败' });
+  }
+});
+
+// 台账/税费岗编辑锁：申请
+router.post('/ledger/:id/lock', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const result = ledgerService.acquireEditLock(id);
+    if (!result.ok) {
+      return res.status(409).json({ message: '其他用户正在编辑' });
+    }
+    return res.json({ message: '已锁定' });
+  } catch (error) {
+    return res.status(500).json({ message: '锁定失败' });
+  }
+});
+
+// 台账/税费岗编辑锁：刷新
+router.post('/ledger/:id/lock/refresh', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const result = ledgerService.refreshEditLock(id);
+    if (!result.ok) {
+      return res.status(409).json({ message: '锁已失效' });
+    }
+    return res.json({ message: '已刷新' });
+  } catch (error) {
+    return res.status(500).json({ message: '刷新失败' });
+  }
+});
+
+// 台账/税费岗编辑锁：释放
+router.post('/ledger/:id/lock/release', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    ledgerService.releaseEditLock(id);
+    return res.json({ message: '已释放' });
+  } catch (error) {
+    return res.status(500).json({ message: '释放失败' });
   }
 });
 

@@ -4,6 +4,9 @@ import {
   fetchLedgerList,
   fetchLedgerById,
   updateLedgerById,
+  acquireEditLock,
+  refreshEditLock,
+  releaseEditLock,
   exportLedgerFile,
   importLedgerFile
 } from '../api/ledger';
@@ -27,7 +30,40 @@ const editLoading = ref(false);
 const editError = ref('');
 const editId = ref(null);
 const viewMode = ref(false);
+const viewPrimary = ref({
+  declNo: '',
+  taxNo: '',
+  goodsName: '',
+  declareDate: ''
+});
+let lockTimer = null;
+
+function resetLockTimer(id) {
+  if (lockTimer) clearTimeout(lockTimer);
+  lockTimer = setTimeout(() => {
+    showToast('编辑锁已过期，请重新打开', 'error');
+    closeEdit();
+  }, 10 * 60 * 1000);
+  refreshEditLock(id).catch(() => {});
+}
+
+function startLock(id) {
+  resetLockTimer(id);
+}
+
+function stopLock() {
+  if (lockTimer) {
+    clearTimeout(lockTimer);
+    lockTimer = null;
+  }
+}
+
+function handleLockActivity() {
+  if (!editId.value) return;
+  resetLockTimer(editId.value);
+}
 const editForm = ref({
+  taxNo: '',
   finalInvoiceDate: '',
   latestSettleDate: '',
   docReceiptDate: '',
@@ -161,7 +197,15 @@ async function openEdit(id) {
   editId.value = id;
   viewMode.value = false;
   try {
+    await acquireEditLock(id);
+    startLock(id);
     const record = await fetchLedgerById(id);
+    viewPrimary.value = {
+      declNo: record.decl_no || '',
+      taxNo: record.tax_no || '',
+      goodsName: record.goods_name || '',
+      declareDate: record.declare_date || ''
+    };
     const attributeFlags = record.attribute_flags
       ? String(record.attribute_flags)
           .split(',')
@@ -169,6 +213,7 @@ async function openEdit(id) {
           .filter(Boolean)
       : [];
     editForm.value = {
+      taxNo: record.tax_no || '',
       finalInvoiceDate: toDateInput(record.final_invoice_date),
       latestSettleDate: toDateInput(record.latest_settle_date),
       docReceiptDate: toDateInput(record.doc_receipt_date),
@@ -187,6 +232,7 @@ async function openEdit(id) {
     };
   } catch (error) {
     editError.value = error.message || '加载失败';
+    closeEdit();
   } finally {
     editLoading.value = false;
   }
@@ -200,7 +246,15 @@ async function openView(id) {
   editId.value = id;
   viewMode.value = true;
   try {
+    await acquireEditLock(id);
+    startLock(id);
     const record = await fetchLedgerById(id);
+    viewPrimary.value = {
+      declNo: record.decl_no || '',
+      taxNo: record.tax_no || '',
+      goodsName: record.goods_name || '',
+      declareDate: record.declare_date || ''
+    };
     const attributeFlags = record.attribute_flags
       ? String(record.attribute_flags)
           .split(',')
@@ -208,6 +262,7 @@ async function openView(id) {
           .filter(Boolean)
       : [];
     editForm.value = {
+      taxNo: record.tax_no || '',
       finalInvoiceDate: toDateInput(record.final_invoice_date),
       latestSettleDate: toDateInput(record.latest_settle_date),
       docReceiptDate: toDateInput(record.doc_receipt_date),
@@ -226,6 +281,7 @@ async function openView(id) {
     };
   } catch (error) {
     editError.value = error.message || '加载失败';
+    closeEdit();
   } finally {
     editLoading.value = false;
   }
@@ -235,8 +291,18 @@ async function openView(id) {
 function closeEdit() {
   editVisible.value = false;
   editError.value = '';
+  if (editId.value) {
+    releaseEditLock(editId.value).catch(() => {});
+  }
+  stopLock();
   editId.value = null;
   viewMode.value = false;
+  viewPrimary.value = {
+    declNo: '',
+    taxNo: '',
+    goodsName: '',
+    declareDate: ''
+  };
 }
 
 // 提交处理页更新
@@ -548,39 +614,70 @@ onMounted(() => {
 
         <div v-if="editLoading" class="state">加载中...</div>
         <div v-else-if="editError" class="state error">{{ editError }}</div>
-        <form v-else class="modal-body" @submit.prevent="submitEdit">
+        <form v-else class="modal-body" @submit.prevent="submitEdit" @input="handleLockActivity">
           <div class="form-grid">
+            <label v-if="viewMode">
+              报关单号
+              <input :value="displayValue(viewPrimary.declNo)" type="text" disabled />
+            </label>
+            <label v-if="viewMode">
+              税号
+              <input :value="displayValue(viewPrimary.taxNo)" type="text" disabled />
+            </label>
+            <label v-if="viewMode">
+              商品名称
+              <input :value="displayValue(viewPrimary.goodsName)" type="text" disabled />
+            </label>
+            <label v-if="viewMode">
+              申报日期
+              <input :value="displayValue(viewPrimary.declareDate)" type="text" disabled />
+            </label>
+            <label v-if="!viewMode">
+              税号
+              <input v-model.trim="editForm.taxNo" type="text" :disabled="viewMode" />
+            </label>
+            <span v-if="!viewMode" class="form-spacer" aria-hidden="true"></span>
+            <span v-if="!viewMode" class="form-spacer" aria-hidden="true"></span>
+            <span v-if="!viewMode" class="form-spacer" aria-hidden="true"></span>
             <label>
               最终发票日期
-              <input v-model="editForm.finalInvoiceDate" type="date" lang="en-CA" :disabled="viewMode" />
+              <input v-if="!viewMode" v-model="editForm.finalInvoiceDate" type="date" lang="en-CA" />
+              <input v-else type="text" :value="editForm.finalInvoiceDate || ''" disabled />
             </label>
             <label>
               最晚结算资料日期
-              <input v-model="editForm.latestSettleDate" type="date" lang="en-CA" :disabled="viewMode" />
+              <input v-if="!viewMode" v-model="editForm.latestSettleDate" type="date" lang="en-CA" />
+              <input v-else type="text" :value="editForm.latestSettleDate || ''" disabled />
             </label>
             <label>
               资料签收日期
-              <input v-model="editForm.docReceiptDate" type="date" lang="en-CA" :disabled="viewMode" />
+              <input v-if="!viewMode" v-model="editForm.docReceiptDate" type="date" lang="en-CA" />
+              <input v-else type="text" :value="editForm.docReceiptDate || ''" disabled />
             </label>
             <label>
               询价发起日期
-              <input v-model="editForm.inquiryStartDate" type="date" lang="en-CA" :disabled="viewMode" />
+              <input v-if="!viewMode" v-model="editForm.inquiryStartDate" type="date" lang="en-CA" />
+              <input v-else type="text" :value="editForm.inquiryStartDate || ''" disabled />
             </label>
             <label>
               质疑日期
-              <input v-model="editForm.challengeDate" type="date" lang="en-CA" :disabled="viewMode" />
+              <input v-if="!viewMode" v-model="editForm.challengeDate" type="date" lang="en-CA" />
+              <input v-else type="text" :value="editForm.challengeDate || ''" disabled />
             </label>
             <label>
               磋商日期
-              <input v-model="editForm.negotiationDate" type="date" lang="en-CA" :disabled="viewMode" />
+              <input v-if="!viewMode" v-model="editForm.negotiationDate" type="date" lang="en-CA" />
+              <input v-else type="text" :value="editForm.negotiationDate || ''" disabled />
             </label>
             <label>
               审价作业表日期
-              <input v-model="editForm.valuationWorkDate" type="date" lang="en-CA" :disabled="viewMode" />
+              <input v-if="!viewMode" v-model="editForm.valuationWorkDate" type="date" lang="en-CA" />
+              <input v-else type="text" :value="editForm.valuationWorkDate || ''" disabled />
             </label>
             <label>
               改单日期（已审价）
-              <input v-model="editForm.amendDate" type="date" lang="en-CA" :disabled="viewMode" />
+              <input v-if="!viewMode" v-model="editForm.amendDate" type="date" lang="en-CA" />
+              <input v-else type="text" :value="editForm.amendDate || ''" disabled />
             </label>
             <label>
               延续性征税（关税）

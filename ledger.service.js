@@ -9,6 +9,9 @@ class LedgerService {
   constructor() {
     // 税费岗状态枚举（空值表示未设置）
     this.taxStatusValues = ['未处置', '已处置'];
+    // 编辑锁：仅内存使用，10 分钟无操作自动释放
+    this.editLocks = new Map();
+    this.lockTimeoutMs = 10 * 60 * 1000;
   }
 
   // 将日期格式化为“仅日期”的时间戳（忽略时分秒），用于天数差计算
@@ -219,6 +222,16 @@ class LedgerService {
     };
   }
 
+  // 税费岗导出（沿用列表计算逻辑）
+  async exportTaxDesk(filters) {
+    const { items } = await this.listTaxDesk({
+      ...filters,
+      page: 1,
+      pageSize: Number.MAX_SAFE_INTEGER
+    });
+    return items;
+  }
+
   // 批量导入节假日配置
   async importHolidayCalendar(rows) {
     return ledgerDao.replaceHolidayCalendar(rows);
@@ -335,36 +348,40 @@ class LedgerService {
 
   // 税费岗单条录入（直接生成含改单日期的记录）
   async createTaxDeskEntry(data) {
-    let isValid = false;
-    if (data.final_invoice_date) {
-      // 有最晚发票日期时：校验改单日期 >= 最晚发票日期 且 >= 申报日期
-      isValid = this.validateAmendDate(
-        data.amend_date,
-        data.final_invoice_date,
-        data.declare_date
-      );
-    } else {
-      // 无最晚发票日期时：仅校验改单日期 >= 申报日期
-      const amendMs = this.toDateOnlyMs(data.amend_date);
-      const declareMs = this.toDateOnlyMs(data.declare_date);
-      isValid = amendMs !== null && declareMs !== null && amendMs >= declareMs;
-    }
-
-    if (!isValid) {
-      const message = data.final_invoice_date
-        ? '改单日期必须大于等于最晚发票日期且大于等于申报日期'
-        : '改单日期必须大于等于申报日期';
-      const error = new Error(message);
-      error.code = 'AMEND_DATE_INVALID';
-      throw error;
-    }
+    // 税费岗单条录入：不遵循台账页校验规则，直接保存
 
     const payload = {
       ...data,
-      tax_status: '未处置'
+      tax_status: '未处置',
+      // tax_desk_only: 税费岗单条录入标记（1=是）
+      tax_desk_only: 1
     };
 
     await ledgerDao.insertLedger(payload);
+  }
+
+  // 获取编辑锁（超时自动释放）
+  acquireEditLock(id) {
+    const now = Date.now();
+    const lock = this.editLocks.get(id);
+    if (lock && now - lock.lockedAt < this.lockTimeoutMs) {
+      return { ok: false };
+    }
+    this.editLocks.set(id, { lockedAt: now });
+    return { ok: true };
+  }
+
+  // 刷新编辑锁（有操作时延长锁定）
+  refreshEditLock(id) {
+    const lock = this.editLocks.get(id);
+    if (!lock) return { ok: false };
+    this.editLocks.set(id, { lockedAt: Date.now() });
+    return { ok: true };
+  }
+
+  // 释放编辑锁
+  releaseEditLock(id) {
+    this.editLocks.delete(id);
   }
 }
 

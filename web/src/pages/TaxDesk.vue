@@ -6,7 +6,11 @@ import {
   updateTaxStartDate,
   createTaxDeskEntry,
   importLedgerFile,
-  importHolidayFile
+  importHolidayFile,
+  exportTaxDeskFile,
+  acquireEditLock,
+  refreshEditLock,
+  releaseEditLock
 } from '../api/ledger';
 
 const emit = defineEmits(['back']);
@@ -18,6 +22,9 @@ const loading = ref(false);
 const errorMessage = ref('');
 const declNo = ref('');
 const startDateEmpty = ref(false);
+const noticeUnsent = ref(false);
+const receiptUnreceived = ref(false);
+const extraBondLike = ref('');
 
 // 本页面只展示前 100 条（税费岗入口）
 const page = ref(1);
@@ -48,7 +55,6 @@ const entryVisible = ref(false);
 const entryForm = ref({
   declNo: '',
   goodsName: '',
-  declareDate: '',
   amendDate: '',
   taxStartDate: '',
   taxRemark: '',
@@ -61,16 +67,71 @@ const entryForm = ref({
 const entryLoading = ref(false);
 const entryError = ref('');
 
+const entryReceiptToggle = computed({
+  get: () => entryForm.value.receiptReceived === '是',
+  set: (value) => {
+    entryForm.value.receiptReceived = value ? '是' : '否';
+  }
+});
+
+const entryNoticeToggle = computed({
+  get: () => entryForm.value.noticeSent === '是',
+  set: (value) => {
+    entryForm.value.noticeSent = value ? '是' : '否';
+  }
+});
+
+const taxReceiptToggle = computed({
+  get: () => receiptReceivedValue.value === '是',
+  set: (value) => {
+    receiptReceivedValue.value = value ? '是' : '否';
+  }
+});
+
+const taxNoticeToggle = computed({
+  get: () => noticeSentValue.value === '是',
+  set: (value) => {
+    noticeSentValue.value = value ? '是' : '否';
+  }
+});
+
 // 导入状态
 const importing = ref(false);
 const importInput = ref(null);
 const holidayImporting = ref(false);
 const holidayImportInput = ref(null);
+const exporting = ref(false);
 
 // 处置确认弹窗状态
 const confirmVisible = ref(false);
 const confirmRow = ref(null);
 const confirmLoading = ref(false);
+let lockTimer = null;
+
+function resetLockTimer(id) {
+  if (lockTimer) clearTimeout(lockTimer);
+  lockTimer = setTimeout(() => {
+    showToast('编辑锁已过期，请重新打开', 'error');
+    closeTaxDate();
+  }, 10 * 60 * 1000);
+  refreshEditLock(id).catch(() => {});
+}
+
+function startLock(id) {
+  resetLockTimer(id);
+}
+
+function stopLock() {
+  if (lockTimer) {
+    clearTimeout(lockTimer);
+    lockTimer = null;
+  }
+}
+
+function handleLockActivity() {
+  if (!taxDateId.value) return;
+  resetLockTimer(taxDateId.value);
+}
 
 function showToast(message, type = 'success') {
   toast.value = { visible: true, message, type };
@@ -113,7 +174,10 @@ async function loadList() {
       page: page.value,
       pageSize: pageSize.value,
       declNo: declNo.value || undefined,
-      startDateEmpty: startDateEmpty.value
+      startDateEmpty: startDateEmpty.value,
+      noticeUnsent: noticeUnsent.value,
+      receiptUnreceived: receiptUnreceived.value,
+      extraBondLike: extraBondLike.value || undefined
     });
     items.value = data.items || [];
     total.value = data.total || 0;
@@ -160,6 +224,9 @@ function handleSearch() {
 function handleReset() {
   declNo.value = '';
   startDateEmpty.value = false;
+  noticeUnsent.value = false;
+  receiptUnreceived.value = false;
+  extraBondLike.value = '';
   page.value = 1;
   loadList();
 }
@@ -267,21 +334,32 @@ function calcBusinessDaysDiff(startDate, endDate) {
 
 function openTaxDate(row) {
   if (!row) return;
-  taxDateVisible.value = true;
-  taxDateError.value = '';
-  taxDateId.value = row.id;
-  taxDateValue.value = toDateInput(row.tax_start_date);
-  taxRemarkValue.value = row.tax_remark || '';
-  bondBalanceValue.value = row.bond_balance ?? '';
-  extraBondValue.value = row.extra_bond ?? '';
-  receiptReceivedValue.value = row.receipt_received || '';
-  brokerNameValue.value = row.broker_name || '';
-  noticeSentValue.value = row.notice_sent || '';
+  acquireEditLock(row.id)
+    .then(() => {
+      startLock(row.id);
+      taxDateVisible.value = true;
+      taxDateError.value = '';
+      taxDateId.value = row.id;
+      taxDateValue.value = toDateInput(row.tax_start_date);
+      taxRemarkValue.value = row.tax_remark || '';
+      bondBalanceValue.value = row.bond_balance ?? '';
+      extraBondValue.value = row.extra_bond ?? '';
+      receiptReceivedValue.value = row.receipt_received || '';
+      brokerNameValue.value = row.broker_name || '';
+      noticeSentValue.value = row.notice_sent || '';
+    })
+    .catch((error) => {
+      showToast(error.message || '其他用户正在编辑', 'error');
+    });
 }
 
 function closeTaxDate() {
   taxDateVisible.value = false;
   taxDateError.value = '';
+  if (taxDateId.value) {
+    releaseEditLock(taxDateId.value).catch(() => {});
+  }
+  stopLock();
   taxDateId.value = null;
   taxDateValue.value = '';
   taxRemarkValue.value = '';
@@ -335,7 +413,6 @@ async function submitEntry() {
     await createTaxDeskEntry({
       declNo: entryForm.value.declNo,
       goodsName: entryForm.value.goodsName || undefined,
-      declareDate: entryForm.value.declareDate,
       amendDate: entryForm.value.amendDate,
       taxStartDate: entryForm.value.taxStartDate || undefined,
       taxRemark: entryForm.value.taxRemark || undefined,
@@ -348,7 +425,6 @@ async function submitEntry() {
     entryForm.value = {
       declNo: '',
       goodsName: '',
-      declareDate: '',
       amendDate: '',
       taxStartDate: '',
       taxRemark: '',
@@ -420,6 +496,34 @@ function triggerHolidayImport() {
   holidayImportInput.value?.click();
 }
 
+async function handleExport() {
+  errorMessage.value = '';
+  try {
+    if (exporting.value) return;
+    exporting.value = true;
+    const { blob, filename } = await exportTaxDeskFile({
+      declNo: declNo.value || undefined,
+      startDateEmpty: startDateEmpty.value,
+      noticeUnsent: noticeUnsent.value,
+      receiptUnreceived: receiptUnreceived.value,
+      extraBondLike: extraBondLike.value || undefined
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+    showToast('导出完成', 'success');
+  } catch (error) {
+    showToast(error.message || '导出失败', 'error');
+  } finally {
+    exporting.value = false;
+  }
+}
+
 onMounted(() => {
   loadList();
 });
@@ -453,15 +557,40 @@ onMounted(() => {
           />
         </div>
         <div class="filter-item">
+          <label>补保证金</label>
+          <input
+            v-model.trim="extraBondLike"
+            type="text"
+            placeholder="模糊匹配"
+            @keydown.enter.prevent="handleSearch"
+          />
+        </div>
+        <div class="filter-item">
           <label>起算日期</label>
           <label class="inline-check">
             <input v-model="startDateEmpty" type="checkbox" />
             <span>仅看为空</span>
           </label>
         </div>
+        <div class="filter-item">
+          <label>通知书</label>
+          <label class="inline-check">
+            <input v-model="noticeUnsent" type="checkbox" />
+            <span>仅看未发送</span>
+          </label>
+        </div>
+        <div class="filter-item">
+          <label>收据</label>
+          <label class="inline-check">
+            <input v-model="receiptUnreceived" type="checkbox" />
+            <span>仅看未收到</span>
+          </label>
+        </div>
         <div class="filter-actions">
           <button class="btn" type="button" @click="handleSearch">查询</button>
           <button class="btn ghost" type="button" @click="handleReset">重置</button>
+        </div>
+        <div class="filter-actions-right-row">
           <div class="filter-actions-right">
             <input
               ref="holidayImportInput"
@@ -476,7 +605,7 @@ onMounted(() => {
               :disabled="holidayImporting"
               @click="triggerHolidayImport"
             >
-              {{ holidayImporting ? '导入中...' : '节假日导入' }}
+              {{ holidayImporting ? '导入中...' : '节假日' }}
             </button>
             <input
               ref="importInput"
@@ -486,7 +615,10 @@ onMounted(() => {
               @change="handleImportChange"
             />
             <button class="btn ghost" type="button" :disabled="importing" @click="triggerImport">
-              {{ importing ? '导入中...' : 'Excel 导入' }}
+              {{ importing ? '导入中...' : '导入' }}
+            </button>
+            <button class="btn ghost" type="button" :disabled="exporting" @click="handleExport">
+              {{ exporting ? '导出中...' : '导出' }}
             </button>
             <button class="btn" type="button" @click="openEntry">录入</button>
           </div>
@@ -529,7 +661,6 @@ onMounted(() => {
               <th>改单日期</th>
               <th>补保证金</th>
               <th>保证金余额</th>
-              <th>是否收到收据</th>
               <th>报关行</th>
               <th>是否发送通知书</th>
               <th>起算日期</th>
@@ -548,8 +679,16 @@ onMounted(() => {
               <td>{{ displayValue(row.goods_name) }}</td>
               <td>{{ displayValue(row.amend_date) }}</td>
               <td>{{ displayValue(row.extra_bond) }}</td>
-              <td>{{ displayValue(row.bond_balance) }}</td>
-              <td>{{ displayValue(row.receipt_received) }}</td>
+              <td class="bond-cell">
+                <span class="bond-inner">
+                  <span
+                    v-if="row.bond_balance !== null && row.bond_balance !== ''"
+                    class="status-dot"
+                    :class="row.receipt_received === '是' ? 'status-green' : 'status-red'"
+                  ></span>
+                  <span>{{ displayValue(row.bond_balance) }}</span>
+                </span>
+              </td>
               <td>{{ displayValue(row.broker_name) }}</td>
               <td>{{ displayValue(row.notice_sent) }}</td>
               <td>{{ displayValue(row.tax_start_date) }}</td>
@@ -612,10 +751,6 @@ onMounted(() => {
               <input v-model.trim="entryForm.goodsName" type="text" placeholder="可选" />
             </label>
             <label>
-              申报日期
-              <input v-model="entryForm.declareDate" type="date" lang="en-CA" />
-            </label>
-            <label>
               改单日期
               <input v-model="entryForm.amendDate" type="date" lang="en-CA" />
             </label>
@@ -633,11 +768,13 @@ onMounted(() => {
             </label>
             <label>
               是否收到收据
-              <select v-model="entryForm.receiptReceived" class="select-input">
-                <option value="">可选</option>
-                <option value="是">是</option>
-                <option value="否">否</option>
-              </select>
+              <div class="switch-row">
+                <label class="switch">
+                  <input v-model="entryReceiptToggle" type="checkbox" />
+                  <span class="slider"></span>
+                </label>
+                <span class="switch-text">{{ entryReceiptToggle ? '是' : '否' }}</span>
+              </div>
             </label>
             <label>
               报关行
@@ -645,11 +782,13 @@ onMounted(() => {
             </label>
             <label>
               是否发送通知书
-              <select v-model="entryForm.noticeSent" class="select-input">
-                <option value="">可选</option>
-                <option value="是">是</option>
-                <option value="否">否</option>
-              </select>
+              <div class="switch-row">
+                <label class="switch">
+                  <input v-model="entryNoticeToggle" type="checkbox" />
+                  <span class="slider"></span>
+                </label>
+                <span class="switch-text">{{ entryNoticeToggle ? '是' : '否' }}</span>
+              </div>
             </label>
             <label class="full">
               税费岗备注
@@ -675,7 +814,7 @@ onMounted(() => {
           </div>
         </header>
 
-        <form class="modal-body" @submit.prevent="submitTaxDate">
+        <form class="modal-body" @submit.prevent="submitTaxDate" @input="handleLockActivity">
           <div class="form-grid">
             <label>
               起算日期
@@ -691,11 +830,13 @@ onMounted(() => {
             </label>
             <label>
               是否收到收据
-              <select v-model="receiptReceivedValue" class="select-input">
-                <option value="">可选</option>
-                <option value="是">是</option>
-                <option value="否">否</option>
-              </select>
+              <div class="switch-row">
+                <label class="switch">
+                  <input v-model="taxReceiptToggle" type="checkbox" />
+                  <span class="slider"></span>
+                </label>
+                <span class="switch-text">{{ taxReceiptToggle ? '是' : '否' }}</span>
+              </div>
             </label>
             <label>
               报关行
@@ -703,11 +844,13 @@ onMounted(() => {
             </label>
             <label>
               是否发送通知书
-              <select v-model="noticeSentValue" class="select-input">
-                <option value="">可选</option>
-                <option value="是">是</option>
-                <option value="否">否</option>
-              </select>
+              <div class="switch-row">
+                <label class="switch">
+                  <input v-model="taxNoticeToggle" type="checkbox" />
+                  <span class="slider"></span>
+                </label>
+                <span class="switch-text">{{ taxNoticeToggle ? '是' : '否' }}</span>
+              </div>
             </label>
             <label class="full">
               税费岗备注

@@ -17,9 +17,9 @@ class LedgerDao {
         valuation_work_date, amend_date, tax_start_date, tax_remark, bond_balance,
         extra_bond, receipt_received, broker_name, notice_sent,
         continu_tax_duty, continu_tax_vat, additional_tax_duty, additional_tax_vat,
-        remark, tax_status, updated_at
+        remark, tax_status, tax_desk_only, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `;
 
     const params = [
@@ -57,7 +57,9 @@ class LedgerDao {
       data.additional_tax_duty || null,
       data.additional_tax_vat || null,
       data.remark || null,
-      data.tax_status || null
+      data.tax_status || null,
+      // tax_desk_only: 税费岗单条录入标记（1=是）
+      data.tax_desk_only || null
     ];
 
     return db.execute(sql, params);
@@ -93,7 +95,8 @@ class LedgerDao {
   async updateLedger(id, data) {
     const sql = `
       UPDATE tax_ledger
-      SET final_invoice_date = ?,
+      SET tax_no = ?,
+          final_invoice_date = ?,
           latest_settle_date = ?,
           doc_receipt_date = ?,
           attribute_flags = ?,
@@ -114,6 +117,8 @@ class LedgerDao {
     `;
 
     const params = [
+      // tax_no: 税号
+      data.tax_no || null,
       data.final_invoice_date || null,
       data.latest_settle_date || null,
       data.doc_receipt_date || null,
@@ -245,6 +250,10 @@ class LedgerDao {
   async listLedgers(filters) {
     const params = [];
     let where = 'WHERE 1=1';
+    // 排除税费岗单条录入记录（台账导出不包含）
+    where += ' AND (tax_desk_only IS NULL OR tax_desk_only <> 1)';
+    // 排除税费岗单条录入记录（台账列表不展示）
+    where += ' AND (tax_desk_only IS NULL OR tax_desk_only <> 1)';
 
     if (filters.declNo) {
       // 报关单号精确匹配，返回所有满足条件的记录（再分页）
@@ -327,7 +336,10 @@ class LedgerDao {
   // 税费岗列表原始数据（不排序、不分页）
   async listTaxDeskRaw(filters) {
     const params = [];
-    let where = 'WHERE amend_date IS NOT NULL';
+    let where = `WHERE (
+      tax_desk_only = 1
+      OR ((tax_desk_only IS NULL OR tax_desk_only = 0) AND amend_date IS NOT NULL)
+    )`;
     if (filters.declNo) {
       // 报关单号精确匹配
       where += ' AND decl_no = ?';
@@ -336,6 +348,19 @@ class LedgerDao {
     if (filters.startDateEmpty) {
       // 起算日期为空筛选
       where += ' AND tax_start_date IS NULL';
+    }
+    if (filters.noticeUnsent) {
+      // 未发送通知书：空值或否
+      where += " AND (notice_sent IS NULL OR notice_sent = '否')";
+    }
+    if (filters.receiptUnreceived) {
+      // 未收到收据：仅否
+      where += " AND receipt_received = '否'";
+    }
+    if (filters.extraBondLike) {
+      // 补保证金模糊匹配（数值转文本）
+      where += ' AND TO_CHAR(extra_bond) LIKE ?';
+      params.push(`%${filters.extraBondLike}%`);
     }
     const sql = `
       SELECT * FROM tax_ledger

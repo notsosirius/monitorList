@@ -50,6 +50,24 @@ export function updateLedgerById(id, payload) {
   });
 }
 
+// 编辑锁：申请
+export function acquireEditLock(id) {
+  const url = `${BASE_URL}/ledger/${id}/lock`;
+  return requestJson(url, { method: 'POST' });
+}
+
+// 编辑锁：刷新
+export function refreshEditLock(id) {
+  const url = `${BASE_URL}/ledger/${id}/lock/refresh`;
+  return requestJson(url, { method: 'POST' });
+}
+
+// 编辑锁：释放
+export function releaseEditLock(id) {
+  const url = `${BASE_URL}/ledger/${id}/lock/release`;
+  return requestJson(url, { method: 'POST' });
+}
+
 // 税费岗处置状态更新
 export function updateTaxStatus(id, taxStatus) {
   const url = `${BASE_URL}/ledger/${id}/tax-status`;
@@ -104,8 +122,34 @@ export function fetchTaxDeskList(params = {}) {
   if (params.pageSize) query.set('pageSize', String(params.pageSize));
   if (params.declNo) query.set('declNo', params.declNo);
   if (params.startDateEmpty) query.set('startDateEmpty', 'true');
+  if (params.noticeUnsent) query.set('noticeUnsent', 'true');
+  if (params.receiptUnreceived) query.set('receiptUnreceived', 'true');
+  if (params.extraBondLike) query.set('extraBondLike', params.extraBondLike);
   const url = `${BASE_URL}/ledger/tax-desk?${query.toString()}`;
   return requestJson(url);
+}
+
+// 税费岗导出
+export async function exportTaxDeskFile(params = {}) {
+  const query = new URLSearchParams();
+  if (params.declNo) query.set('declNo', params.declNo);
+  if (params.startDateEmpty) query.set('startDateEmpty', 'true');
+  if (params.noticeUnsent) query.set('noticeUnsent', 'true');
+  if (params.receiptUnreceived) query.set('receiptUnreceived', 'true');
+  if (params.extraBondLike) query.set('extraBondLike', params.extraBondLike);
+  const url = `${BASE_URL}/ledger/tax-desk/export?${query.toString()}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    const message = await response.text();
+    const error = new Error(message || '导出失败');
+    error.status = response.status;
+    throw error;
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get('content-disposition') || '';
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match ? decodeURIComponent(match[1]) : 'tax_desk.xlsx';
+  return { blob, filename };
 }
 
 // 导入 Excel（原始二进制上传，后端做严格校验）

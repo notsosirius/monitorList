@@ -17,11 +17,14 @@ const loading = ref(false);
 const errorMessage = ref('');
 
 // 详情字段定义，统一用于渲染
-const fields = [
+const primaryFields = [
   { key: 'decl_no', label: '报关单号' },
   { key: 'tax_no', label: '税号' },
   { key: 'goods_name', label: '商品名称' },
-  { key: 'declare_date', label: '申报日期' },
+  { key: 'declare_date', label: '申报日期' }
+];
+
+const fields = [
   { key: 'final_invoice_date', label: '最终发票日期' },
   { key: 'latest_settle_date', label: '最晚结算资料日期' },
   { key: 'doc_receipt_date', label: '资料签收日期' },
@@ -133,6 +136,12 @@ function getAttributeFlags(recordValue) {
       <div v-else-if="errorMessage" class="state error">{{ errorMessage }}</div>
       <div v-else-if="!record" class="state">暂无数据</div>
       <div v-else>
+        <div class="detail-grid">
+          <div v-for="field in primaryFields" :key="field.key" class="detail-row">
+            <div class="detail-label">{{ field.label }}</div>
+            <div class="detail-value">{{ displayValue(record[field.key]) }}</div>
+          </div>
+        </div>
         <div class="detail-grid">
           <div v-for="field in fieldsBeforeAttribute" :key="field.key" class="detail-row">
             <div class="detail-label">{{ field.label }}</div>
