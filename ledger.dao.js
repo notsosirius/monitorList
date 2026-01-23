@@ -19,7 +19,7 @@ class LedgerDao {
         continu_tax_duty, continu_tax_vat, additional_tax_duty, additional_tax_vat,
         remark, tax_status, tax_desk_only, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `;
 
     const params = [
@@ -52,10 +52,10 @@ class LedgerDao {
       data.broker_name || null,
       // notice_sent: 是否发送通知书（是/否）
       data.notice_sent || null,
-      data.continu_tax_duty || null,
-      data.continu_tax_vat || null,
-      data.additional_tax_duty || null,
-      data.additional_tax_vat || null,
+      data.continu_tax_duty ?? null,
+      data.continu_tax_vat ?? null,
+      data.additional_tax_duty ?? null,
+      data.additional_tax_vat ?? null,
       data.remark || null,
       data.tax_status || null,
       // tax_desk_only: 税费岗单条录入标记（1=是）
@@ -129,10 +129,10 @@ class LedgerDao {
       data.negotiation_date || null,
       data.valuation_work_date || null,
       data.amend_date || null,
-      data.continu_tax_duty || null,
-      data.continu_tax_vat || null,
-      data.additional_tax_duty || null,
-      data.additional_tax_vat || null,
+      data.continu_tax_duty ?? null,
+      data.continu_tax_vat ?? null,
+      data.additional_tax_duty ?? null,
+      data.additional_tax_vat ?? null,
       data.remark || null,
       data.tax_status || null,
       id

@@ -279,7 +279,16 @@ function displayWorkdayCount(count) {
 function toDateInput(value) {
   if (!value) return '';
   if (typeof value === 'string') {
-    if (value.includes('T')) return value.split('T')[0];
+    if (value.includes('T')) {
+      const date = new Date(value);
+      if (!Number.isNaN(date.getTime())) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+      return '';
+    }
     return value;
   }
   if (value instanceof Date) {
@@ -665,7 +674,7 @@ onMounted(() => {
               <th>是否发送通知书</th>
               <th>起算日期</th>
               <th>是否超5个工作日</th>
-              <th class="col-text single-line">税费岗备注</th>
+              <th class="col-text">税费岗备注</th>
               <th>税费岗状态</th>
               <th>处置</th>
             </tr>
@@ -693,7 +702,9 @@ onMounted(() => {
               <td>{{ displayValue(row.notice_sent) }}</td>
               <td>{{ displayValue(row.tax_start_date) }}</td>
               <td>{{ displayWorkdayCount(row.workday_since_start) }}</td>
-              <td class="col-text single-line">{{ displayValue(row.tax_remark) }}</td>
+              <td class="col-text">
+                <div class="ellipsis-cell">{{ displayValue(row.tax_remark) }}</div>
+              </td>
               <td>{{ displayValue(row.tax_status) }}</td>
               <td>
                 <button

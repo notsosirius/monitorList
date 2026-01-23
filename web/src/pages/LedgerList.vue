@@ -88,8 +88,8 @@ const attributeOptions = [
   '事中验估',
   '事后验估',
   '虚拟混矿',
-  '报税内销有内销价',
-  '报税内销无内销价'
+  '保税内销有内销价',
+  '保税内销无内销价'
 ];
 
 // 导出状态：防止重复点击
@@ -177,7 +177,16 @@ function viewRecord(id) {
 function toDateInput(value) {
   if (!value) return '';
   if (typeof value === 'string') {
-    if (value.includes('T')) return value.split('T')[0];
+    if (value.includes('T')) {
+      const date = new Date(value);
+      if (!Number.isNaN(date.getTime())) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+      return '';
+    }
     return value;
   }
   if (value instanceof Date) {
@@ -580,7 +589,9 @@ onMounted(() => {
               <td>{{ displayValue(row.latest_settle_date) }}</td>
               <td>{{ displayValue(row.doc_receipt_date) }}</td>
               <td>{{ displayValue(row.days_receipt_invoice) }}</td>
-              <td class="col-text single-line">{{ displayValue(row.info_exchange) }}</td>
+              <td class="col-text">
+                <div class="ellipsis-cell">{{ displayValue(row.info_exchange) }}</div>
+              </td>
               <td>{{ displayValue(row.inquiry_start_date) }}</td>
               <td>{{ displayValue(row.challenge_date) }}</td>
               <td>{{ displayValue(row.negotiation_date) }}</td>
@@ -592,7 +603,9 @@ onMounted(() => {
               <td>{{ displayValue(row.continu_tax_vat) }}</td>
               <td>{{ displayValue(row.additional_tax_duty) }}</td>
               <td>{{ displayValue(row.additional_tax_vat) }}</td>
-              <td class="col-text single-line">{{ displayValue(row.remark) }}</td>
+              <td class="col-text">
+                <div class="ellipsis-cell">{{ displayValue(row.remark) }}</div>
+              </td>
               <td>
                 <button class="btn small" type="button" @click="viewRecord(row.id)">查看</button>
                 <button class="btn small ghost" type="button" @click="openEdit(row.id)">处理</button>

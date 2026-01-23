@@ -316,6 +316,13 @@ body {
   word-break: break-word;
 }
 
+.ellipsis-cell {
+  max-width: 240px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .ledger-table th.single-line,
 .ledger-table td.single-line {
   white-space: nowrap;

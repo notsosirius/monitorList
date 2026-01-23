@@ -32,8 +32,8 @@ const ATTRIBUTE_OPTIONS = [
   '事中验估',
   '事后验估',
   '虚拟混矿',
-  '报税内销有内销价',
-  '报税内销无内销价',
+  '保税内销有内销价',
+  '保税内销无内销价',
 ];
 
 
@@ -470,6 +470,7 @@ router.post('/ledger/tax-desk', async (req, res) => {
 
     return res.status(201).json({ message: '创建成功' });
   } catch (error) {
+    console.error('税费岗单条录入失败:', error);
     if (error?.code === 'AMEND_DATE_INVALID') {
       return res.status(400).json({ message: error.message });
     }
@@ -510,11 +511,14 @@ router.post(
       const header = rows[0].map((cell) => String(cell).trim());
       const headerMap = {
         '报关单号': 'decl_no',
+        '税号': 'tax_no',
         '商品名称': 'goods_name',
         '申报日期': 'declare_date',
         '最晚发票日期': 'final_invoice_date',
         '最晚结算资料日期': 'latest_settle_date',
         '资料签收日期': 'doc_receipt_date',
+        // 属性字段为多选，Excel 内按逗号分隔
+        '属性字段': 'attribute_flags',
         '资料交互情况': 'info_exchange',
         '询价发起日期': 'inquiry_start_date',
         '质疑日期': 'challenge_date',
@@ -555,6 +559,20 @@ router.post(
           const value = row[index];
           if (value !== null && value !== undefined && value !== '') {
             hasValue = true;
+          }
+
+          // 属性字段：多选枚举，逗号分隔
+          if (key === 'attribute_flags') {
+            const { value: normalized, error } = normalizeAttributeFlags(
+              String(value || '').replace(/，/g, ','),
+              ATTRIBUTE_OPTIONS
+            );
+            if (error) {
+              errors.push(`第 ${i + 1} 行属性字段包含非法值`);
+            } else {
+              record[key] = normalized;
+            }
+            return;
           }
 
           // 日期字段：统一转 YYYY-MM-DD

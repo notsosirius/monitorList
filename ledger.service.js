@@ -122,6 +122,29 @@ class LedgerService {
     return 'yellow';
   }
 
+  // Default tax amount fields to 0 on create.
+  applyTaxDefaults(data) {
+    const payload = { ...data };
+    const keys = [
+      'continu_tax_duty',
+      'continu_tax_vat',
+      'additional_tax_duty',
+      'additional_tax_vat'
+    ];
+    keys.forEach((key) => {
+      if (payload[key] === undefined || payload[key] === null || payload[key] === '') {
+        payload[key] = 0;
+      }
+    });
+    return payload;
+  }
+
+  normalizeTaxAmountOnUpdate(value, fallback) {
+    if (value === undefined) return fallback;
+    if (value === null || value === '') return 0;
+    return value;
+  }
+
   // 新建台账（含重复预检）
   async createLedger(data, confirmDuplicate) {
     const existingCount = await ledgerDao.countByDeclNo(data.decl_no);
@@ -132,7 +155,8 @@ class LedgerService {
       };
     }
 
-    await ledgerDao.insertLedger(data);
+    const payload = this.applyTaxDefaults(data);
+    await ledgerDao.insertLedger(payload);
     return { duplicate: false };
   }
 
@@ -266,19 +290,47 @@ class LedgerService {
       taxStatus = taxStatus || '未处置';
     }
 
-    await ledgerDao.updateLedger(id, {
+    const normalized = {
       ...data,
+      continu_tax_duty: this.normalizeTaxAmountOnUpdate(
+        data.continu_tax_duty,
+        existing?.continu_tax_duty
+      ),
+      continu_tax_vat: this.normalizeTaxAmountOnUpdate(
+        data.continu_tax_vat,
+        existing?.continu_tax_vat
+      ),
+      additional_tax_duty: this.normalizeTaxAmountOnUpdate(
+        data.additional_tax_duty,
+        existing?.additional_tax_duty
+      ),
+      additional_tax_vat: this.normalizeTaxAmountOnUpdate(
+        data.additional_tax_vat,
+        existing?.additional_tax_vat
+      ),
       tax_status: taxStatus
-    });
+    };
+
+    await ledgerDao.updateLedger(id, normalized);
   }
 
   // 插件回填（按报关单号更新最新一条）
   async pluginUpdateByDeclNo(declNo, data) {
     // 只传递明确包含的字段，避免无意覆盖
     const payload = {};
+    const taxKeys = new Set([
+      'continu_tax_duty',
+      'continu_tax_vat',
+      'additional_tax_duty',
+      'additional_tax_vat'
+    ]);
     Object.keys(data || {}).forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(data, key)) {
-        payload[key] = data[key];
+        if (taxKeys.has(key)) {
+          payload[key] = this.normalizeTaxAmountOnUpdate(data[key], undefined);
+        } else {
+          payload[key] = data[key];
+        }
       }
     });
 
@@ -306,7 +358,8 @@ class LedgerService {
         row.tax_status = '未处置';
       }
 
-      await ledgerDao.insertLedger(row);
+      const payload = this.applyTaxDefaults(row);
+      await ledgerDao.insertLedger(payload);
       inserted += 1;
     }
 
@@ -350,12 +403,12 @@ class LedgerService {
   async createTaxDeskEntry(data) {
     // 税费岗单条录入：不遵循台账页校验规则，直接保存
 
-    const payload = {
+    const payload = this.applyTaxDefaults({
       ...data,
       tax_status: '未处置',
       // tax_desk_only: 税费岗单条录入标记（1=是）
       tax_desk_only: 1
-    };
+    });
 
     await ledgerDao.insertLedger(payload);
   }

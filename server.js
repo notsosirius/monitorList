@@ -32,7 +32,8 @@ app.get('/api/health', (req, res) => {
 const distPath = path.join(__dirname, 'web', 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
-  app.get('*', (req, res) => {
+  // 兼容 path-to-regexp 新版本：使用正则兜底路由
+  app.get(/.*/, (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
