@@ -1,10 +1,10 @@
-// 一定要放最外围，保证 this 指向 window
+﻿// 一定要放最外围，保证 this 指向 window
 const $this = this;
 
 // 页面A：登记新记录（按钮 + 弹窗 + 保存）
 async function main() {
   // ========= 页面白名单：只在满足条件的页面执行 =========
-  // TODO: 替换成页面A的实际 URL 判断逻辑（占位：entryid 参数）
+  // TODO: 替换成页面A的实际URL判断逻辑（占位：entryid 参数）
   const url = new URL(window.location.href);
   const entryId = url.searchParams.get('entryid');
   if (!entryId) return;
@@ -15,15 +15,19 @@ async function main() {
   window.__plugin_inited = true;
 
   // ========= （可选）等待页面关键元素加载完成 =========
-  // TODO: 如果页面异步渲染，可等待某个稳定选择器
+  // TODO: 如果页面异步渲染，可等待某个稳定选择器出现再开始
   // const WAIT_SEL = '...';
   // await $this.libs.utils.waitForValue(WAIT_SEL);
 
   // ========= 注入按钮 =========
   // TODO: 替换成按钮插入位置与参考按钮选择器
-  const target = document.querySelector('TARGET_SELECTOR');
-  // 参照按钮样式来自 AI 审单按钮（id: aiResultButton）
-  const refBtn = target ? target.querySelector('#aiResultButton') : null;
+  // 目标在 iframe 内：先拿到 iframe 文档再查找目标
+  const frame = document.querySelector('#iframe');
+  const frameDoc = frame?.contentDocument || frame?.contentWindow?.document;
+  // 参考容器：enter-head
+  const target = frameDoc?.querySelector('div.enter-head');
+  // 参照按钮（放在其左侧）
+  const refBtn = frameDoc?.querySelector('#aiResultButton');
   if (!target) return;
 
   const btn = document.createElement('button');
@@ -40,23 +44,23 @@ async function main() {
   btn.style.verticalAlign = 'middle';
   btn.style.float = 'right';
 
-  btn.addEventListener('click', () => {
-    // ========= 获取页面字段（占位） =========
-    // TODO: 将 JS_PATH_* 替换为页面A的实际 JS 变量路径或 DOM 读取逻辑
-    const declNo = $this?.JS_PATH_DECL_NO || '';
-    const taxNo = $this?.JS_PATH_TAX_NO || '';
-    const goodsName = $this?.JS_PATH_GOODS_NAME || '';
-    const declareDate = $this?.JS_PATH_DECLARE_DATE || '';
-
-    openModal({ declNo, taxNo, goodsName, declareDate });
+  btn.addEventListener('click', async () => {
+    // ========= 获取页面字段（优先使用 fetch，避免页面 DOM 变动） =========
+    // TODO: 用实际接口替换占位符（URL/方法/参数/字段路径）
+    try {
+      const seed = await fetchPageAData(entryId);
+      openModal(seed);
+    } catch (error) {
+      alert(error.message || '获取页面数据失败');
+    }
   });
 
-  if (refBtn) {
-    // 插在参照按钮左侧
-    target.insertBefore(btn, refBtn);
+  if (refBtn && refBtn.parentNode) {
+    // 插在参考按钮左侧
+    refBtn.parentNode.insertBefore(btn, refBtn);
   } else {
-    // 找不到参照按钮时兜底放到末尾
-    target.appendChild(btn);
+    // 找不到参考按钮时兜底放到容器开头
+    target.prepend(btn);
   }
 }
 
@@ -187,6 +191,50 @@ function openModal(seed) {
   });
 }
 
+// ========= 获取页面A数据（fetch 占位实现） =========
+async function fetchPageAData(entryId) {
+  // TODO: 替换为页面A真实接口
+  // 1) URL 占位
+  const API_URL = 'PAGE_A_API_URL';
+  // 2) 请求方式（GET/POST）
+  const METHOD = 'POST';
+  // 3) 请求体/查询参数占位
+  const payload = {
+    entryId
+    // 例如：page: 1, size: 1
+  };
+
+  // 4) 发送请求（同域可直接带 cookie）
+  const res =
+    METHOD === 'GET'
+      ? await fetch(`${API_URL}?entryId=${encodeURIComponent(entryId)}`, {
+          credentials: 'include'
+        })
+      : await fetch(API_URL, {
+          method: METHOD,
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(payload)
+        });
+
+  if (!res.ok) {
+    throw new Error(`页面数据接口失败（${res.status}）`);
+  }
+  const data = await res.json();
+
+  // 5) 字段路径（来自页面A返回结构）
+  // entryHead.entryId: 报关单号
+  // entryHead.dDate: 申报日期（YYYY/MM/DD）
+  // entryList[0].codeTs: 税号
+  // entryList[0].gName: 商品名称
+  const declNo = data?.entryHead?.entryId || '';
+  const taxNo = data?.entryList?.[0]?.codeTs || '';
+  const goodsName = data?.entryList?.[0]?.gName || '';
+  const declareDate = data?.entryHead?.dDate || '';
+
+  return { declNo, taxNo, goodsName, declareDate };
+}
+
 // 创建台账记录：重复报关单号时走二次确认
 async function createLedger(payload, confirmDuplicate) {
   const res = await fetch('/api/ledger', {
@@ -233,3 +281,4 @@ window.addEventListener('popstate', onUrlChange, false);
 
 // ========= 首次进入执行 =========
 main();
+

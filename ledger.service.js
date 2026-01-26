@@ -279,13 +279,16 @@ class LedgerService {
     taxStatus = existing?.tax_status || null;
 
     if (data.amend_date) {
-      const finalInvoiceDate = data.final_invoice_date ?? existing?.final_invoice_date;
-      const declareDate = existing?.declare_date;
-      const isValid = this.validateAmendDate(data.amend_date, finalInvoiceDate, declareDate);
-      if (!isValid) {
-        const error = new Error('改单日期必须大于等于最晚发票日期且大于等于申报日期');
-        error.code = 'AMEND_DATE_INVALID';
-        throw error;
+      // 税费岗单条录入记录不参与台账校验规则
+      if (!existing?.tax_desk_only) {
+        const finalInvoiceDate = data.final_invoice_date ?? existing?.final_invoice_date;
+        const declareDate = existing?.declare_date;
+        const isValid = this.validateAmendDate(data.amend_date, finalInvoiceDate, declareDate);
+        if (!isValid) {
+          const error = new Error('改单日期必须大于等于最晚发票日期且大于等于申报日期');
+          error.code = 'AMEND_DATE_INVALID';
+          throw error;
+        }
       }
       taxStatus = taxStatus || '未处置';
     }
@@ -378,15 +381,18 @@ class LedgerService {
     // 设置为“已处置”前必须校验改单日期
     if (status === '已处置') {
       const existing = await ledgerDao.findById(id);
-      const isValid = this.validateAmendDate(
-        existing?.amend_date,
-        existing?.final_invoice_date,
-        existing?.declare_date
-      );
-      if (!isValid) {
-        const error = new Error('改单日期不合法，无法设置为已处置');
-        error.code = 'AMEND_DATE_INVALID';
-        throw error;
+      // 税费岗单条录入记录不参与台账校验规则
+      if (!existing?.tax_desk_only) {
+        const isValid = this.validateAmendDate(
+          existing?.amend_date,
+          existing?.final_invoice_date,
+          existing?.declare_date
+        );
+        if (!isValid) {
+          const error = new Error('改单日期不合法，无法设置为已处置');
+          error.code = 'AMEND_DATE_INVALID';
+          throw error;
+        }
       }
     }
 
